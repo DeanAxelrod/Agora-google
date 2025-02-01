@@ -27,35 +27,39 @@
             console.log("Model loaded");
         }
 
-        // Function to convert audio to spectrogram
-        function convertToSpectrogram(audioBuffer) {
-            const audioContext = new AudioContext();
-            const analyser = audioContext.createAnalyser();
-            const source = audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(analyser);
-            analyser.connect(audioContext.destination);
-
-            const bufferLength = analyser.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
-            analyser.getByteFrequencyData(dataArray);
-
-            // Normalize the data for the model
-            const spectrogram = tf.tensor(dataArray).reshape([1, bufferLength]);
-            return spectrogram;
-        }
-
         // Function to classify audio
         async function classifyAudio(audioBlob) {
             const audioContext = new AudioContext();
             const arrayBuffer = await audioBlob.arrayBuffer();
             const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-            // Convert audio to spectrogram
+            // Convert audio to spectrogram (example, adjust as needed)
             const spectrogram = convertToSpectrogram(audioBuffer);
             const prediction = await model.predict(spectrogram);
             const result = prediction.argMax(1).dataSync()[0];
             return result;
+        }
+
+        // Function to get OpenAI prompt
+        async function getOpenAIPrompt(classification) {
+            const response = await fetch("https://api.openai.com/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Authorization": "Bearer sk-proj-Og4Mrv9E-W8W_cu2VFaKEiyuV8ZfvsblUI0s3XiX91HYJzh3CGsWTgO4-MtXvpAUk-Y96g8Fr1T3BlbkFJV-WEta2aJyxYIiFUcGkYWfmP6xNZandvivEPMMAVu0PFGoJq2tS8Gn01J0Z07sA0PZ9a6kMbgA",
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    model: "gpt-3.5-turbo",
+                    messages: [
+                        {
+                            role: "user",
+                            content: `Translate this pet sound classification into a human-like sentence: ${classification}`
+                        }
+                    ]
+                })
+            });
+            const data = await response.json();
+            return data.choices[0].message.content;
         }
 
         // Function to send status to Thunkable
@@ -74,22 +78,16 @@
 
         // Start Recording
         document.getElementById("startBtn").onclick = async () => {
-            console.log("Start Recording button clicked"); // Debugging log
             try {
                 const channelName = "test_channel";
                 const uid = await client.join(null, channelName, null);
                 console.log("User joined with UID:", uid);
 
-                // Initialize local stream for recording
                 localStream = AgoraRTC.createStream({ audio: true, video: false });
                 await localStream.init();
-                console.log("Local stream initialized");
-
-                // Publish local stream to Agora
-                await client.publish(localStream);
+                client.publish(localStream);
                 console.log("Recording started");
 
-                // Update UI and disable buttons
                 document.getElementById("status").innerText = "Status: Recording";
                 document.getElementById("startBtn").disabled = true;
                 document.getElementById("stopBtn").disabled = false;
@@ -102,19 +100,24 @@
 
         // Stop Recording
         document.getElementById("stopBtn").onclick = async () => {
-            console.log("Stop Recording button clicked"); // Debugging log
             try {
-                // Unpublish and leave the channel
                 client.unpublish(localStream);
                 await client.leave();
                 localStream.close();
                 console.log("Recording stopped");
 
-                // Update UI
+                // Classify the audio using Teachable Machine
+                const audioBlob = await localStream.getAudioTrack().getBlob();
+                const result = await classifyAudio(audioBlob);
+                sendStatus("Classification: " + result);
+
+                // Get OpenAI prompt
+                const prompt = await getOpenAIPrompt(result);
+                sendStatus("OpenAI Prompt: " + prompt);
+
                 document.getElementById("status").innerText = "Status: Stopped";
                 document.getElementById("startBtn").disabled = false;
                 document.getElementById("stopBtn").disabled = true;
-                sendStatus("Recording stopped");
             } catch (error) {
                 console.error("Error stopping recording:", error);
                 sendStatus("Error: " + error.message);
