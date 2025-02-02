@@ -87,9 +87,11 @@
                     console.log("Recording stopped");
 
                     // Classify the audio using Teachable Machine
-                    const audioBlob = localStream.getAudioTrack().getBlob();
-                    classifyAudio(audioBlob).then((result) => {
-                        sendStatus("Classification: " + result); // Send classification result to Thunkable
+                    // Access the audio data directly from the Agora stream
+                    localStream.getAudioTrack().getBlob().then((audioBlob) => {
+                        classifyAudio(audioBlob).then((result) => {
+                            sendStatus("Classification: " + result); // Send classification result to Thunkable
+                        });
                     });
 
                     document.getElementById("status").innerText = "Status: Stopped";
@@ -112,10 +114,3 @@
             if (message === 'startRecording') {
                 startRecording();
             }
-            if (message === 'stopRecording') {
-                stopRecording();
-            }
-        });
-    </script>
-</body>
-</html>
