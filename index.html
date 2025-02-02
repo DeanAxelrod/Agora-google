@@ -13,7 +13,7 @@
     <p id="status">Status: Idle</p>
 
     <script>
-        const appId = "25336bcd01664c70870804ba0b7e1b30";
+        const appId = "25336bcd01664c70870804ba0b7e1b30";  // Replace with your own App ID
         const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
         let localStream;
 
@@ -90,6 +90,9 @@
                     const audioBlob = localStream.getAudioTrack().getBlob();
                     classifyAudio(audioBlob).then((result) => {
                         sendStatus("Classification: " + result);
+                        if (window.ReactNativeWebView) {
+                            window.ReactNativeWebView.postMessage(result);  // Send classification result back to Thunkable
+                        }
                     });
 
                     document.getElementById("status").innerText = "Status: Stopped";
