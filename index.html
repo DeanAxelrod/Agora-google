@@ -13,12 +13,12 @@
     <p id="status">Status: Idle</p>
 
     <script>
-        const appId = "25336bcd01664c70870804ba0b7e1b30";  // Replace with your own App ID
+        const appId = "25336bcd01664c70870804ba0b7e1b30"; // Replace with your Agora App ID
         const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
         let localStream;
 
         // Teachable Machine Model URL
-        const modelURL = "https://deanaxelrod.github.io/Google-TM/model.json";
+        const modelURL = "https://deanaxelrod.github.io/Google-TM/model.json"; // Replace with your Teachable Machine URL
 
         // Load Teachable Machine model
         let model;
@@ -27,31 +27,13 @@
             console.log("Model loaded");
         }
 
-        // Function to convert audio to spectrogram
-        function convertToSpectrogram(audioBuffer) {
-            const audioContext = new AudioContext();
-            const analyser = audioContext.createAnalyser();
-            const source = audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(analyser);
-            analyser.connect(audioContext.destination);
-
-            const bufferLength = analyser.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
-            analyser.getByteFrequencyData(dataArray);
-
-            // Normalize the data for the model
-            const spectrogram = tf.tensor(dataArray).reshape([1, bufferLength]);
-            return spectrogram;
-        }
-
         // Function to classify audio
         async function classifyAudio(audioBlob) {
             const audioContext = new AudioContext();
             const arrayBuffer = await audioBlob.arrayBuffer();
             const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-            // Convert audio to spectrogram
+            // Convert audio to spectrogram (example, adjust as needed)
             const spectrogram = convertToSpectrogram(audioBuffer);
             const prediction = await model.predict(spectrogram);
             const result = prediction.argMax(1).dataSync()[0];
@@ -73,26 +55,23 @@
         });
 
         // Start Recording
-        async function startRecording() {
+        function startRecording() {
             try {
                 const channelName = "test_channel";
-                const uid = await client.join(null, channelName, null);
-                console.log("User joined with UID:", uid);
+                client.join(null, channelName, null, (uid) => {
+                    console.log("User joined with UID:", uid);
 
-                // Initialize local stream for recording
-                localStream = AgoraRTC.createStream({ audio: true, video: false });
-                await localStream.init(); // Use 'await' to ensure initialization completes
-                console.log("Local stream initialized");
+                    localStream = AgoraRTC.createStream({ audio: true, video: false });
+                    localStream.init(() => {
+                        client.publish(localStream);
+                        console.log("Recording started");
 
-                // Publish local stream to Agora
-                await client.publish(localStream); // Use 'await' to ensure publishing completes
-                console.log("Recording started");
-
-                // Update UI and disable buttons
-                document.getElementById("status").innerText = "Status: Recording";
-                document.getElementById("startBtn").disabled = true;
-                document.getElementById("stopBtn").disabled = false;
-                sendStatus("Recording started");
+                        document.getElementById("status").innerText = "Status: Recording";
+                        document.getElementById("startBtn").disabled = true;
+                        document.getElementById("stopBtn").disabled = false;
+                        sendStatus("Recording started");
+                    });
+                });
             } catch (error) {
                 console.error("Error starting recording:", error);
                 sendStatus("Error: " + error.message);
@@ -100,30 +79,34 @@
         }
 
         // Stop Recording
-        async function stopRecording() {
+        function stopRecording() {
             try {
-                // Unpublish and leave the channel
                 client.unpublish(localStream);
-                await client.leave();
-                localStream.close();
-                console.log("Recording stopped");
+                client.leave(() => {
+                    localStream.close();
+                    console.log("Recording stopped");
 
-                // Classify the audio using Teachable Machine
-                const audioBlob = await localStream.getAudioTrack().getBlob();
-                const result = await classifyAudio(audioBlob);
-                sendStatus("Classification: " + result);
+                    // Classify the audio using Teachable Machine
+                    const audioBlob = localStream.getAudioTrack().getBlob();
+                    classifyAudio(audioBlob).then((result) => {
+                        sendStatus("Classification: " + result); // Send classification result to Thunkable
+                    });
 
-                // Update UI
-                document.getElementById("status").innerText = "Status: Stopped";
-                document.getElementById("startBtn").disabled = false;
-                document.getElementById("stopBtn").disabled = true;
+                    document.getElementById("status").innerText = "Status: Stopped";
+                    document.getElementById("startBtn").disabled = false;
+                    document.getElementById("stopBtn").disabled = true;
+                });
             } catch (error) {
                 console.error("Error stopping recording:", error);
                 sendStatus("Error: " + error.message);
             }
         }
 
-        // Listen for messages from Thunkable
+        // Add event listeners for buttons
+        document.getElementById("startBtn").addEventListener("click", startRecording);
+        document.getElementById("stopBtn").addEventListener("click", stopRecording);
+
+        // Listen for messages from Thunkable (optional)
         window.addEventListener('message', (event) => {
             const message = event.data;
             if (message === 'startRecording') {
@@ -133,16 +116,6 @@
                 stopRecording();
             }
         });
-
-        // Check microphone permissions
-        navigator.mediaDevices.getUserMedia({ audio: true })
-            .then(() => {
-                console.log("Microphone access granted");
-            })
-            .catch((error) => {
-                console.error("Microphone access denied:", error);
-                sendStatus("Error: Microphone access denied");
-            });
     </script>
 </body>
 </html>
