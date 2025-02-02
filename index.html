@@ -94,9 +94,9 @@
                         });
                     });
 
-                    document.getElementById("status").innerText = "Status: Stopped";
-                    document.getElementById("startBtn").disabled = false;
-                    document.getElementById("stopBtn").disabled = true;
+                    document.getElementById("status").innerText = "Status: Idle"; // Set to "Idle"
+                    document.getElementById("startBtn").disabled = false; // Enable start button
+                    document.getElementById("stopBtn").disabled = true; // Disable stop button
                 });
             } catch (error) {
                 console.error("Error stopping recording:", error);
@@ -114,3 +114,10 @@
             if (message === 'startRecording') {
                 startRecording();
             }
+            if (message === 'stopRecording') {
+                stopRecording();
+            }
+        });
+    </script>
+</body>
+</html>
