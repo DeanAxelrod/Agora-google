@@ -1,122 +1,198 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Agora Voice Recorder</title>
-    <script src="https://cdn.agora.io/sdk/release/AgoraRTCSDK-3.6.9.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands"></script>
+  <title>Agora Voice Recorder with Classification</title>
+  <!-- Include Agora, TensorFlow, and Teachable Machine dependencies -->
+  <script src="https://cdn.agora.io/sdk/release/AgoraRTCSDK-3.6.9.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands"></script>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    button { margin: 5px; }
+  </style>
 </head>
 <body>
-    <h1>Agora Voice Recorder</h1>
-    <button id="startBtn">Start Recording</button>
-    <button id="stopBtn" disabled>Stop Recording</button>
-    <p id="status">Status: Idle</p>
+  <h1>Agora Voice Recorder with Classification</h1>
+  <button id="startBtn">Start Recording</button>
+  <button id="stopBtn" disabled>Stop Recording</button>
+  <p id="recordingStatus">Recording Status: Idle</p>
+  <p id="classificationResult">Classification Result: N/A</p>
 
-    <script>
-        const appId = "25336bcd01664c70870804ba0b7e1b30"; // Replace with your Agora App ID
-        const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
-        let localStream;
+  <script>
+    // ---------------- Configuration ----------------
+    const appId = "25336bcd01664c70870804ba0b7e1b30"; // Replace with your Agora App ID
+    const channelName = "test_channel";
+    const modelURL = "https://deanaxelrod.github.io/Google-TM/model.json"; // Replace with your model URL
 
-        // Teachable Machine Model URL
-        const modelURL = "https://deanaxelrod.github.io/Google-TM/model.json"; // Replace with your Teachable Machine URL
+    // ---------------- Global Variables ----------------
+    const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+    let localStream;
+    let mediaRecorder;
+    let recordedChunks = [];
+    let model;
 
-        // Load Teachable Machine model
-        let model;
-        async function loadModel() {
-            model = await tf.loadLayersModel(modelURL);
-            console.log("Model loaded");
-        }
+    // ---------------- Load the Teachable Machine Model ----------------
+    async function loadModel() {
+      try {
+        model = await tf.loadLayersModel(modelURL);
+        console.log("Model loaded successfully.");
+      } catch (error) {
+        console.error("Error loading model:", error);
+      }
+    }
 
-        // Function to classify audio
-        async function classifyAudio(audioBlob) {
-            const audioContext = new AudioContext();
-            const arrayBuffer = await audioBlob.arrayBuffer();
-            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    // ---------------- Convert Audio to a Spectrogram Matching Model Input ----------------
+    // This function takes the first 9976 samples (43*232) from the audio buffer.
+    // If the buffer is shorter, it pads with zeros.
+    // Then it reshapes the data into a [1, 43, 232, 1] tensor.
+    function convertToSpectrogram(audioBuffer) {
+      const requiredLength = 43 * 232; // 9976 samples needed
+      let channelData = audioBuffer.getChannelData(0);
+      if (channelData.length < requiredLength) {
+        // Create a zero-filled array and copy the available samples
+        let padded = new Float32Array(requiredLength);
+        padded.set(channelData);
+        channelData = padded;
+      } else {
+        channelData = channelData.slice(0, requiredLength);
+      }
+      // Create a 1D tensor from the channel data
+      const tensor = tf.tensor1d(channelData);
+      // Reshape to [43,232,1]
+      const reshaped = tensor.reshape([43, 232, 1]);
+      // Add a batch dimension so that the shape becomes [1,43,232,1]
+      return reshaped.expandDims(0);
+    }
 
-            // Convert audio to spectrogram (example, adjust as needed)
-            const spectrogram = convertToSpectrogram(audioBuffer);
-            const prediction = await model.predict(spectrogram);
-            const result = prediction.argMax(1).dataSync()[0];
-            return result;
-        }
+    // ---------------- Classify the Audio Blob ----------------
+    async function classifyAudio(audioBlob) {
+      try {
+        const audioContext = new AudioContext();
+        const arrayBuffer = await audioBlob.arrayBuffer();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        const spectrogram = convertToSpectrogram(audioBuffer);
+        const prediction = model.predict(spectrogram);
+        // Get the predicted class index (assuming the model outputs a tensor)
+        const result = prediction.argMax(1).dataSync()[0];
+        console.log("Classification result:", result);
+        return result;
+      } catch (error) {
+        console.error("Error during classification:", error);
+        return null;
+      }
+    }
 
-        // Function to send status to Thunkable
-        function sendStatus(status) {
-            if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(status);
-            }
-        }
+    // ---------------- Send Status (for debugging) ----------------
+    function sendStatus(status) {
+      console.log("Status:", status);
+      // If using Thunkable's Web Viewer, you can also send the message:
+      // if (window.ReactNativeWebView) {
+      //   window.ReactNativeWebView.postMessage(status);
+      // }
+    }
 
-        // Initialize Agora
-        client.init(appId, () => {
-            console.log("Agora initialized");
-            document.getElementById("status").innerText = "Status: Ready";
-            loadModel();
-        });
+    // ---------------- Initialize Agora and Load the Model ----------------
+    client.init(appId, () => {
+      console.log("Agora initialized successfully.");
+      document.getElementById("recordingStatus").innerText = "Recording Status: Ready";
+      loadModel();
+    }, (error) => {
+      console.error("Agora initialization error:", error);
+      sendStatus("Agora initialization error: " + error);
+    });
 
-        // Start Recording
-        function startRecording() {
+    // ---------------- Start Recording ----------------
+    function startRecording() {
+      try {
+        client.join(null, channelName, null, (uid) => {
+          console.log("User joined with UID:", uid);
+          localStream = AgoraRTC.createStream({ audio: true, video: false });
+          localStream.init(() => {
+            client.publish(localStream, (err) => {
+              console.error("Publish error:", err);
+              sendStatus("Publish error: " + err);
+            });
+            console.log("Recording started.");
+            document.getElementById("recordingStatus").innerText = "Recording Status: Recording...";
+            document.getElementById("startBtn").disabled = true;
+            document.getElementById("stopBtn").disabled = false;
+            sendStatus("Recording started");
+
+            // ---------------- Setup MediaRecorder ----------------
+            // Get the underlying MediaStream from the Agora stream.
+            // Depending on the Agora SDK version, this may be available as localStream.stream.
+            let mediaStream = localStream.stream || new MediaStream([localStream.getAudioTrack()]);
             try {
-                const channelName = "test_channel";
-                client.join(null, channelName, null, (uid) => {
-                    console.log("User joined with UID:", uid);
-
-                    localStream = AgoraRTC.createStream({ audio: true, video: false });
-                    localStream.init(() => {
-                        client.publish(localStream);
-                        console.log("Recording started");
-
-                        document.getElementById("status").innerText = "Status: Recording";
-                        document.getElementById("startBtn").disabled = true;
-                        document.getElementById("stopBtn").disabled = false;
-                        sendStatus("Recording started");
-                    });
-                });
-            } catch (error) {
-                console.error("Error starting recording:", error);
-                sendStatus("Error: " + error.message);
+              mediaRecorder = new MediaRecorder(mediaStream);
+            } catch (e) {
+              console.error("MediaRecorder error:", e);
             }
-        }
-
-        // Stop Recording
-        function stopRecording() {
-            try {
-                client.unpublish(localStream);
-                client.leave(() => {
-                    localStream.close();
-                    console.log("Recording stopped");
-
-                    // Classify the audio using Teachable Machine
-                    localStream.getAudioTrack().getBlob().then((audioBlob) => {
-                        classifyAudio(audioBlob).then((result) => {
-                            sendStatus("Classification: " + result); // Send classification result to Thunkable
-                        });
-                    });
-
-                    document.getElementById("status").innerText = "Status: Idle";
-                    document.getElementById("startBtn").disabled = false;
-                    document.getElementById("stopBtn").disabled = true;
-                });
-            } catch (error) {
-                console.error("Error stopping recording:", error);
-                sendStatus("Error: " + error.message);
-            }
-        }
-
-        // Add event listeners for buttons
-        document.getElementById("startBtn").addEventListener("click", startRecording);
-        document.getElementById("stopBtn").addEventListener("click", stopRecording);
-
-        // Listen for messages from Thunkable
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            if (message === 'startRecording') {
-                startRecording();
-            }
-            if (message === 'stopRecording') {
-                stopRecording();
-            }
+            recordedChunks = [];
+            mediaRecorder.ondataavailable = function(event) {
+              if (event.data.size > 0) {
+                recordedChunks.push(event.data);
+              }
+            };
+            mediaRecorder.start();
+          }, (error) => {
+            console.error("Local stream initialization error:", error);
+            sendStatus("Local stream initialization error: " + error);
+          });
+        }, (error) => {
+          console.error("Join channel error:", error);
+          sendStatus("Join channel error: " + error);
         });
-    </script>
+      } catch (error) {
+        console.error("Error in startRecording:", error);
+        sendStatus("Error in startRecording: " + error.message);
+      }
+    }
+
+    // ---------------- Stop Recording ----------------
+    function stopRecording() {
+      try {
+        client.unpublish(localStream, (err) => {
+          if (err) {
+            console.error("Unpublish error:", err);
+            sendStatus("Unpublish error: " + err);
+          }
+        });
+        client.leave(() => {
+          localStream.close();
+          document.getElementById("recordingStatus").innerText = "Recording Status: Idle";
+          sendStatus("Recording stopped");
+
+          // Stop the MediaRecorder and process the recorded data.
+          if (mediaRecorder && mediaRecorder.state !== "inactive") {
+            mediaRecorder.stop();
+            mediaRecorder.onstop = async function() {
+              let audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+              recordedChunks = []; // Reset for next recording
+              const result = await classifyAudio(audioBlob);
+              if (result !== null) {
+                document.getElementById("classificationResult").innerText = "Classification Result: " + result;
+                sendStatus("Classification:" + result);
+              } else {
+                document.getElementById("classificationResult").innerText = "Classification Result: Failed";
+                sendStatus("Classification failed");
+              }
+            };
+          }
+          document.getElementById("startBtn").disabled = false;
+          document.getElementById("stopBtn").disabled = true;
+        }, (error) => {
+          console.error("Leave channel error:", error);
+          sendStatus("Leave channel error: " + error);
+        });
+      } catch (error) {
+        console.error("Error in stopRecording:", error);
+        sendStatus("Error in stopRecording: " + error.message);
+      }
+    }
+
+    // ---------------- Set Up Button Event Listeners ----------------
+    document.getElementById("startBtn").addEventListener("click", startRecording);
+    document.getElementById("stopBtn").addEventListener("click", stopRecording);
+  </script>
 </body>
 </html>
