@@ -24,6 +24,9 @@
     const channelName = "test_channel";
     const modelURL = "https://deanaxelrod.github.io/Google-TM/model.json"; // Replace with your model URL
 
+    // Define your class labels mapping (update these with your actual labels)
+    const classLabels = ["Sad Dog", "Happy Dog", "Angry Dog", "Unknown"];
+
     // ---------------- Global Variables ----------------
     const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
     let localStream;
@@ -36,6 +39,10 @@
       try {
         model = await tf.loadLayersModel(modelURL);
         console.log("Model loaded successfully.");
+        // Optionally, print a summary of the model (if available)
+        if (model.summary) {
+          model.summary();
+        }
       } catch (error) {
         console.error("Error loading model:", error);
       }
@@ -70,12 +77,23 @@
         const audioContext = new AudioContext();
         const arrayBuffer = await audioBlob.arrayBuffer();
         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        console.log("Audio buffer shape:", audioBuffer.length);
         const spectrogram = convertToSpectrogram(audioBuffer);
+        console.log("Spectrogram tensor shape:", spectrogram.shape);
+        
+        // Predict and print raw prediction tensor for debugging
         const prediction = model.predict(spectrogram);
-        // Get the predicted class index (assuming the model outputs a tensor)
-        const result = prediction.argMax(1).dataSync()[0];
-        console.log("Classification result:", result);
-        return result;
+        console.log("Raw prediction tensor:");
+        prediction.print();
+
+        // Get the predicted class index (assuming the model outputs a tensor of probabilities)
+        const resultIndex = prediction.argMax(1).dataSync()[0];
+        console.log("Classification index:", resultIndex);
+
+        // Map the index to a human-readable label (if available)
+        let resultLabel = classLabels[resultIndex] || ("Index " + resultIndex);
+        console.log("Mapped classification label:", resultLabel);
+        return resultLabel;
       } catch (error) {
         console.error("Error during classification:", error);
         return null;
@@ -85,7 +103,7 @@
     // ---------------- Send Status (for debugging) ----------------
     function sendStatus(status) {
       console.log("Status:", status);
-      // If using Thunkable's Web Viewer, you can also send the message:
+      // Uncomment if you need to forward status to an external system (e.g., Thunkable):
       // if (window.ReactNativeWebView) {
       //   window.ReactNativeWebView.postMessage(status);
       // }
@@ -109,8 +127,10 @@
           localStream = AgoraRTC.createStream({ audio: true, video: false });
           localStream.init(() => {
             client.publish(localStream, (err) => {
-              console.error("Publish error:", err);
-              sendStatus("Publish error: " + err);
+              if(err) {
+                console.error("Publish error:", err);
+                sendStatus("Publish error: " + err);
+              }
             });
             console.log("Recording started.");
             document.getElementById("recordingStatus").innerText = "Recording Status: Recording...";
@@ -120,8 +140,12 @@
 
             // ---------------- Setup MediaRecorder ----------------
             // Get the underlying MediaStream from the Agora stream.
-            // Depending on the Agora SDK version, this may be available as localStream.stream.
-            let mediaStream = localStream.stream || new MediaStream([localStream.getAudioTrack()]);
+            let mediaStream;
+            try {
+              mediaStream = localStream.stream || new MediaStream([localStream.getAudioTrack()]);
+            } catch(e) {
+              console.error("Error getting audio track:", e);
+            }
             try {
               mediaRecorder = new MediaRecorder(mediaStream);
             } catch (e) {
@@ -168,10 +192,10 @@
             mediaRecorder.onstop = async function() {
               let audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
               recordedChunks = []; // Reset for next recording
-              const result = await classifyAudio(audioBlob);
-              if (result !== null) {
-                document.getElementById("classificationResult").innerText = "Classification Result: " + result;
-                sendStatus("Classification:" + result);
+              const classificationLabel = await classifyAudio(audioBlob);
+              if (classificationLabel !== null) {
+                document.getElementById("classificationResult").innerText = "Classification Result: " + classificationLabel;
+                sendStatus("Classification: " + classificationLabel);
               } else {
                 document.getElementById("classificationResult").innerText = "Classification Result: Failed";
                 sendStatus("Classification failed");
