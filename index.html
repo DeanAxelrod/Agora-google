@@ -87,16 +87,15 @@
                     console.log("Recording stopped");
 
                     // Classify the audio using Teachable Machine
-                    // Access the audio data directly from the Agora stream
                     localStream.getAudioTrack().getBlob().then((audioBlob) => {
                         classifyAudio(audioBlob).then((result) => {
                             sendStatus("Classification: " + result); // Send classification result to Thunkable
                         });
                     });
 
-                    document.getElementById("status").innerText = "Status: Idle"; // Set to "Idle"
-                    document.getElementById("startBtn").disabled = false; // Enable start button
-                    document.getElementById("stopBtn").disabled = true; // Disable stop button
+                    document.getElementById("status").innerText = "Status: Idle";
+                    document.getElementById("startBtn").disabled = false;
+                    document.getElementById("stopBtn").disabled = true;
                 });
             } catch (error) {
                 console.error("Error stopping recording:", error);
@@ -108,7 +107,7 @@
         document.getElementById("startBtn").addEventListener("click", startRecording);
         document.getElementById("stopBtn").addEventListener("click", stopRecording);
 
-        // Listen for messages from Thunkable (optional)
+        // Listen for messages from Thunkable
         window.addEventListener('message', (event) => {
             const message = event.data;
             if (message === 'startRecording') {
