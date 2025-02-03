@@ -49,55 +49,59 @@
         debugDiv.scrollTop = debugDiv.scrollHeight;
     }
 
-    async function createSpectrogram(audioBuffer) {
-        try {
-            debugLog("Starting spectrogram creation...");
-            const offlineCtx = new OfflineAudioContext({
-                numberOfChannels: 1,
-                length: 44100 * audioBuffer.duration,
-                sampleRate: 44100,
-            });
-
-            const source = offlineCtx.createBufferSource();
-            source.buffer = audioBuffer;
-
-            const analyser = offlineCtx.createAnalyser();
-            analyser.fftSize = 1024;
-            analyser.smoothingTimeConstant = 0;
-
-            source.connect(analyser);
-            analyser.connect(offlineCtx.destination);
-
-            source.start(0);
-            const renderedBuffer = await offlineCtx.startRendering();
-
-            const timeSlices = 43;
-            const frequencyBins = 232;
-            const spectrogramData = new Float32Array(timeSlices * frequencyBins);
-            const timeStep = Math.floor(renderedBuffer.length / timeSlices);
+async function createSpectrogram(audioBuffer) {
+    try {
+        debugLog("Starting spectrogram creation...");
+        const timeSlices = 43;
+        const frequencyBins = 232;
+        
+        const analyser = new AnalyserNode(audioBuffer.context, {
+            fftSize: frequencyBins * 2, // This will give us 232 frequency bins
+            smoothingTimeConstant: 0
+        });
+        
+        // Create buffer source
+        const source = audioBuffer.context.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(analyser);
+        
+        // Create array for the spectrogram data
+        const spectrogramData = new Float32Array(timeSlices * frequencyBins);
+        const frequencyData = new Float32Array(analyser.frequencyBinCount);
+        
+        // Calculate time step between slices
+        const timeStep = audioBuffer.duration / timeSlices;
+        
+        // Collect frequency data for each time slice
+        source.start();
+        for (let i = 0; i < timeSlices; i++) {
+            analyser.getFloatFrequencyData(frequencyData);
             
-            const frequencyData = new Float32Array(analyser.frequencyBinCount);
-            
-            for (let timeIndex = 0; timeIndex < timeSlices; timeIndex++) {
-                analyser.getFloatFrequencyData(frequencyData);
-                for (let freqIndex = 0; freqIndex < frequencyBins; freqIndex++) {
-                    const value = (frequencyData[freqIndex] + 140) / 140;
-                    spectrogramData[timeIndex * frequencyBins + freqIndex] = Math.max(0, Math.min(1, value));
-                }
+            // Normalize and store frequency data
+            for (let j = 0; j < frequencyBins; j++) {
+                // Normalize from dB scale (-100 to 0) to 0-1 range
+                const value = (frequencyData[j] + 100) / 100;
+                spectrogramData[i * frequencyBins + j] = Math.max(0, Math.min(1, value));
             }
-
-            const tensor = tf.tensor4d(spectrogramData, [1, timeSlices, frequencyBins, 1]);
-            debugLog("Tensor shape:", tensor.shape);
             
-            return tensor;
-        } catch (error) {
-            debugLog("Error in createSpectrogram:", {
-                message: error.message,
-                stack: error.stack
-            });
-            throw error;
+            // Wait for next time slice
+            await new Promise(resolve => setTimeout(resolve, timeStep * 1000));
         }
+        source.stop();
+        
+        // Create tensor with shape [1, 43, 232, 1]
+        const tensor = tf.tensor4d(spectrogramData, [1, timeSlices, frequencyBins, 1]);
+        debugLog("Created tensor with shape:", tensor.shape);
+        
+        return tensor;
+    } catch (error) {
+        debugLog("Error in createSpectrogram:", {
+            message: error.message,
+            stack: error.stack
+        });
+        throw error;
     }
+}
 
     async function classifyAudio(audioBlob) {
         try {
