@@ -49,59 +49,37 @@
         debugDiv.scrollTop = debugDiv.scrollHeight;
     }
 
-async function createSpectrogram(audioBuffer) {
-    try {
-        debugLog("Starting spectrogram creation...");
-        const timeSlices = 43;
-        const frequencyBins = 232;
-        
-        const analyser = new AnalyserNode(audioBuffer.context, {
-            fftSize: frequencyBins * 2, // This will give us 232 frequency bins
-            smoothingTimeConstant: 0
-        });
-        
-        // Create buffer source
-        const source = audioBuffer.context.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(analyser);
-        
-        // Create array for the spectrogram data
-        const spectrogramData = new Float32Array(timeSlices * frequencyBins);
-        const frequencyData = new Float32Array(analyser.frequencyBinCount);
-        
-        // Calculate time step between slices
-        const timeStep = audioBuffer.duration / timeSlices;
-        
-        // Collect frequency data for each time slice
-        source.start();
-        for (let i = 0; i < timeSlices; i++) {
-            analyser.getFloatFrequencyData(frequencyData);
-            
-            // Normalize and store frequency data
-            for (let j = 0; j < frequencyBins; j++) {
-                // Normalize from dB scale (-100 to 0) to 0-1 range
-                const value = (frequencyData[j] + 100) / 100;
-                spectrogramData[i * frequencyBins + j] = Math.max(0, Math.min(1, value));
-            }
-            
-            // Wait for next time slice
-            await new Promise(resolve => setTimeout(resolve, timeStep * 1000));
-        }
-        source.stop();
-        
-        // Create tensor with shape [1, 43, 232, 1]
-        const tensor = tf.tensor4d(spectrogramData, [1, timeSlices, frequencyBins, 1]);
-        debugLog("Created tensor with shape:", tensor.shape);
-        
-        return tensor;
-    } catch (error) {
-        debugLog("Error in createSpectrogram:", {
-            message: error.message,
-            stack: error.stack
-        });
-        throw error;
-    }
+async function classifyAudio(audioBlob) {
+  try {
+    // Create an AudioContext (ensure this is done after a user gesture; your button click should suffice)
+    const audioContext = new AudioContext();
+    const arrayBuffer = await audioBlob.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    console.log("Audio buffer duration (s):", audioBuffer.duration);
+    
+    // Use the provided convertToSpectrogram function (which does not use AnalyserNode)
+    const spectrogram = convertToSpectrogram(audioBuffer);
+    console.log("Spectrogram tensor shape:", spectrogram.shape);
+    
+    // Predict and print raw prediction tensor for debugging
+    const prediction = model.predict(spectrogram);
+    console.log("Raw prediction tensor:");
+    prediction.print();
+
+    // Get the predicted class index
+    const resultIndex = prediction.argMax(1).dataSync()[0];
+    console.log("Classification index:", resultIndex);
+
+    // Map the index to a human-readable label
+    let resultLabel = classLabels[resultIndex] || ("Index " + resultIndex);
+    console.log("Mapped classification label:", resultLabel);
+    return resultLabel;
+  } catch (error) {
+    console.error("Error during classification:", error);
+    return null;
+  }
 }
+
 
     async function classifyAudio(audioBlob) {
         try {
