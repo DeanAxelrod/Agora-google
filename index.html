@@ -2,262 +2,231 @@
 <html>
 <head>
   <title>Agora Voice Recorder with Classification</title>
-  <script src="https://cdn.agora.io/sdk/release/AgoraRTCSDK-3.6.9.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands"></script>
+  <script src="https://cdn.agora.io/sdk/release/AgoraRTCSDK-3.6.9.js"></script>
   <style>
     body { font-family: Arial, sans-serif; }
-    button { margin: 5px; }
-    #debug { 
-      margin-top: 20px;
-      padding: 10px;
-      border: 1px solid #ccc;
-      max-height: 300px;
-      overflow-y: auto;
+    .button-container { margin: 20px 0; }
+    button {
+      margin: 5px; padding: 15px 30px; cursor: pointer;
+      background-color: #4CAF50; color: white; border: none;
+      border-radius: 4px; font-size: 16px; min-width: 200px;
+      transition: all 0.3s ease;
     }
+    button:disabled { background-color: #cccccc; cursor: not-allowed; }
+    .stop-button { background-color: #cccccc; }
+    .stop-button.recording { background-color: #f44336 !important; }  /* Red when recording */
+    #debug { margin-top: 20px; padding: 10px; border: 1px solid #ccc; max-height: 300px; overflow-y: auto; }
+    .status { font-size: 18px; margin: 10px 0; }
   </style>
 </head>
 <body>
   <h1>Agora Voice Recorder with Classification</h1>
-  <button id="startBtn">Start Recording</button>
-  <button id="stopBtn" disabled>Stop Recording</button>
-  <p id="recordingStatus">Recording Status: Idle</p>
-  <p id="classificationResult">Classification Result: N/A</p>
+  <div class="button-container">
+    <button id="startBtn">Start Recording</button>
+    <button id="stopBtn" class="stop-button" disabled>Stop Recording</button>
+  </div>
+  <p id="recordingStatus" class="status">Recording Status: Ready</p>
+  <p id="classificationResult" class="status">Classification Result: N/A</p>
   <div id="debug"></div>
 
   <script>
     const appId = "25336bcd01664c70870804ba0b7e1b30";
-    const channelName = "test_channel";
     const modelURL = "https://deanaxelrod.github.io/Google-TM/model.json";
-    const classLabels = ["Noise", "Sad Dog", "Excited Dog (panting)", "Disappointed Dog (sigh)", 
-                        "Threatening dog (Growl)", "Attention seeking Dog (whimpering)", 
-                        "Excited Territorial Dog (barking)"];
+    const classLabels = ["Noise", "Sad Dog", "Excited Dog", "Disappointed Dog", "Growl", "Whimper", "Bark"];
 
-    const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
-    let localStream;
-    let mediaRecorder;
+    let mediaRecorder = null;
     let recordedChunks = [];
-    let model;
+    let model = null;
 
-    function debugLog(message, data = null) {
-        const text = data ? `${message} ${JSON.stringify(data)}` : message;
-        console.log(text);
-        const debugDiv = document.getElementById('debug');
-        const logEntry = document.createElement('p');
-        logEntry.textContent = text;
-        debugDiv.appendChild(logEntry);
-        debugDiv.scrollTop = debugDiv.scrollHeight;
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const statusEl = document.getElementById('recordingStatus');
+    const resultEl = document.getElementById('classificationResult');
+
+    function debugLog(message) {
+      const debugDiv = document.getElementById('debug');
+      const logEntry = document.createElement('p');
+      logEntry.textContent = message;
+      debugDiv.appendChild(logEntry);
+      debugDiv.scrollTop = debugDiv.scrollHeight;
+    }
+
+    function setRecordingState(recording) {
+      startBtn.disabled = recording;
+      stopBtn.disabled = !recording;
+      statusEl.textContent = `Recording Status: ${recording ? 'Recording' : 'Ready'}`;
+
+      // Add or remove the 'recording' class based on the state
+      if (recording) {
+        stopBtn.classList.add('recording');
+      } else {
+        stopBtn.classList.remove('recording');
+      }
     }
 
     async function createSpectrogram(audioBuffer) {
-        try {
-            debugLog("Starting spectrogram creation...");
-            const offlineCtx = new OfflineAudioContext({
-                numberOfChannels: 1,
-                length: 44100 * audioBuffer.duration,
-                sampleRate: 44100,
-            });
+      try {
+        debugLog("Creating spectrogram...");
 
-            const source = offlineCtx.createBufferSource();
-            source.buffer = audioBuffer;
+        const audioData = audioBuffer.getChannelData(0);
+        const fftSize = 512;
+        const hopSize = fftSize / 2;
+        const numFrames = Math.floor((audioData.length - fftSize) / hopSize);
 
-            const analyser = offlineCtx.createAnalyser();
-            analyser.fftSize = 1024;
-            analyser.smoothingTimeConstant = 0;
+        const spectrogramData = [];
 
-            source.connect(analyser);
-            analyser.connect(offlineCtx.destination);
+        for (let i = 0; i < numFrames; i++) {
+          const startIdx = i * hopSize;
+          const frameData = audioData.slice(startIdx, startIdx + fftSize);
 
-            source.start(0);
-            const renderedBuffer = await offlineCtx.startRendering();
+          if (frameData.length === fftSize) {
+            const tensorFrame = tf.tensor1d(frameData);
+            const windowedFrame = tensorFrame.mul(tf.signal.hammingWindow(fftSize));
+            const fft = tf.spectral.rfft(windowedFrame);
+            const magnitude = tf.abs(fft);
 
-            const timeSlices = 43;
-            const frequencyBins = 232;
-            const spectrogramData = new Float32Array(timeSlices * frequencyBins);
-            const timeStep = Math.floor(renderedBuffer.length / timeSlices);
-            
-            const frequencyData = new Float32Array(analyser.frequencyBinCount);
-            
-            for (let timeIndex = 0; timeIndex < timeSlices; timeIndex++) {
-                analyser.getFloatFrequencyData(frequencyData);
-                for (let freqIndex = 0; freqIndex < frequencyBins; freqIndex++) {
-                    const value = (frequencyData[freqIndex] + 140) / 140;
-                    spectrogramData[timeIndex * frequencyBins + freqIndex] = Math.max(0, Math.min(1, value));
-                }
-            }
-
-            const tensor = tf.tensor4d(spectrogramData, [1, timeSlices, frequencyBins, 1]);
-            debugLog("Tensor shape:", tensor.shape);
-            
-            return tensor;
-        } catch (error) {
-            debugLog("Error in createSpectrogram:", {
-                message: error.message,
-                stack: error.stack
-            });
-            throw error;
+            spectrogramData.push(magnitude.arraySync());
+            fft.dispose();
+            tensorFrame.dispose();
+          }
         }
+
+        const spectrogramTensor = tf.tensor2d(spectrogramData);
+        debugLog(`Spectrogram created with shape: ${spectrogramTensor.shape}`);
+
+        // Adjust the target shape to [43, 232]
+        const targetHeight = 43; // Expected by the model
+        const targetWidth = 232; // Expected by the model
+
+        // Add an extra dimension (channel) before resizing: [height, width, 1]
+        const spectrogramWithChannel = spectrogramTensor.reshape([1, spectrogramTensor.shape[0], spectrogramTensor.shape[1], 1]);
+
+        // Resize the spectrogram to match the target dimensions
+        const resizedSpectrogram = tf.image.resizeBilinear(spectrogramWithChannel, [targetHeight, targetWidth]);
+        spectrogramTensor.dispose();
+
+        // Normalize the spectrogram
+        const normalizedSpectrogram = resizedSpectrogram.div(tf.max(resizedSpectrogram));
+
+        // Return the spectrogram reshaped to match model input shape (1, 43, 232, 1)
+        return normalizedSpectrogram.reshape([1, targetHeight, targetWidth, 1]);
+      } catch (error) {
+        debugLog("Error creating spectrogram: " + error.message);
+        throw error;
+      }
     }
 
     async function classifyAudio(audioBlob) {
-        try {
-            debugLog("Starting classification...");
-            const audioContext = new AudioContext();
-            const arrayBuffer = await audioBlob.arrayBuffer();
-            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-            
-            debugLog("Audio properties:", {
-                duration: audioBuffer.duration,
-                sampleRate: audioBuffer.sampleRate,
-                numberOfChannels: audioBuffer.numberOfChannels
-            });
+      try {
+        debugLog("Starting classification...");
+        const audioContext = new AudioContext();
+        const arrayBuffer = await audioBlob.arrayBuffer();
 
-            const spectrogram = await createSpectrogram(audioBuffer);
-            
-            debugLog("Running prediction...");
-            const prediction = await model.predict(spectrogram).data();
-            
-            classLabels.forEach((label, idx) => {
-                debugLog(`${label}: ${(prediction[idx] * 100).toFixed(2)}%`);
-            });
-            
-            const resultIndex = prediction.indexOf(Math.max(...prediction));
-            return classLabels[resultIndex];
-        } catch (error) {
-            debugLog("Classification error:", {
-                message: error.message,
-                stack: error.stack
-            });
-            return null;
-        }
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        debugLog("Audio decoded, duration: " + audioBuffer.duration);
+
+        const spectrogram = await createSpectrogram(audioBuffer);
+        const prediction = await model.predict(spectrogram).data();
+        spectrogram.dispose();
+
+        classLabels.forEach((label, idx) => {
+          debugLog(`${label}: ${(prediction[idx] * 100).toFixed(2)}%`);
+        });
+
+        const resultIndex = prediction.indexOf(Math.max(...prediction));
+        return classLabels[resultIndex];
+      } catch (error) {
+        debugLog("Classification error: " + error.message);
+        throw error;
+      }
     }
 
-    async function loadModel() {
-        try {
-            model = await tf.loadLayersModel(modelURL);
-            debugLog("Model loaded successfully");
-            const inputShape = model.inputs[0].shape;
-            debugLog("Model expects input shape:", inputShape);
-            model.summary();
-            return true;
-        } catch (error) {
-            debugLog("Error loading model:", error);
-            return false;
-        }
+    async function startRecording() {
+      try {
+        debugLog("Starting recording...");
+        setRecordingState(true);
+
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        mediaRecorder = new MediaRecorder(stream);
+        recordedChunks = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            recordedChunks.push(event.data);
+          }
+        };
+
+        mediaRecorder.onstart = () => {
+          debugLog("MediaRecorder started");
+        };
+
+        mediaRecorder.start();
+      } catch (error) {
+        debugLog("Error starting recording: " + error.message);
+        setRecordingState(false);
+      }
     }
 
-    // Fixed Start Recording Function
-    function startRecording() {
-        try {
-            debugLog("Attempting to start recording...");
-            client.join(null, channelName, null, (uid) => {
-                debugLog("User joined with UID:", uid);
-                localStream = AgoraRTC.createStream({
-                    audio: true,
-                    video: false
-                });
+    async function stopRecording() {
+      try {
+        debugLog("Stopping recording...");
+        statusEl.textContent = "Recording Status: Processing...";
 
-                localStream.init(() => {
-                    debugLog("Local stream initialized");
-                    client.publish(localStream, (err) => {
-                        if(err) {
-                            debugLog("Publish error:", err);
-                            return;
-                        }
-                        debugLog("Stream published successfully");
-                    });
-
-                    document.getElementById("recordingStatus").innerText = "Recording Status: Recording...";
-                    document.getElementById("startBtn").disabled = true;
-                    document.getElementById("stopBtn").disabled = false;
-
-                    try {
-                        const mediaStream = localStream.stream || new MediaStream([localStream.getAudioTrack()]);
-                        mediaRecorder = new MediaRecorder(mediaStream);
-                        recordedChunks = [];
-
-                        mediaRecorder.ondataavailable = (event) => {
-                            if (event.data.size > 0) {
-                                recordedChunks.push(event.data);
-                            }
-                        };
-
-                        mediaRecorder.start();
-                        debugLog("MediaRecorder started successfully");
-                    } catch (e) {
-                        debugLog("MediaRecorder error:", e);
-                    }
-                }, (error) => {
-                    debugLog("Local stream initialization error:", error);
-                });
-            }, (error) => {
-                debugLog("Join channel error:", error);
-            });
-        } catch (error) {
-            debugLog("Error in startRecording:", error);
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          await new Promise(resolve => {
+            mediaRecorder.onstop = resolve;
+            mediaRecorder.stop();
+          });
+          debugLog("MediaRecorder stopped");
         }
+
+        if (recordedChunks.length > 0) {
+          const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+          debugLog("Processing audio...");
+
+          try {
+            const classificationLabel = await classifyAudio(audioBlob);
+            resultEl.textContent = "Classification Result: " + classificationLabel;
+            debugLog("Classification complete: " + classificationLabel);
+          } catch (error) {
+            debugLog("Classification failed: " + error.message);
+            resultEl.textContent = "Classification Result: Error";
+          }
+        }
+
+        setRecordingState(false);
+      } catch (error) {
+        debugLog("Error stopping recording: " + error.message);
+        setRecordingState(false);
+      }
     }
 
-    // Fixed Stop Recording Function
-    function stopRecording() {
-        try {
-            debugLog("Stopping recording...");
-            
-            if (mediaRecorder && mediaRecorder.state !== "inactive") {
-                mediaRecorder.stop();
-                mediaRecorder.onstop = async () => {
-                    try {
-                        const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-                        recordedChunks = [];
-                        
-                        debugLog("Processing recorded audio...");
-                        const classificationLabel = await classifyAudio(audioBlob);
-                        
-                        if (classificationLabel !== null) {
-                            document.getElementById("classificationResult").innerText = 
-                                "Classification Result: " + classificationLabel;
-                        } else {
-                            document.getElementById("classificationResult").innerText = 
-                                "Classification Result: Failed";
-                        }
-                    } catch (error) {
-                        debugLog("Error processing recording:", error);
-                    }
-                };
-            }
-
-            client.unpublish(localStream, (err) => {
-                if (err) {
-                    debugLog("Unpublish error:", err);
-                }
-            });
-
-            client.leave(() => {
-                debugLog("Client left channel");
-                localStream.close();
-                document.getElementById("recordingStatus").innerText = "Recording Status: Idle";
-                document.getElementById("startBtn").disabled = false;
-                document.getElementById("stopBtn").disabled = true;
-            }, (error) => {
-                debugLog("Leave channel error:", error);
-            });
-        } catch (error) {
-            debugLog("Error in stopRecording:", error);
-        }
+    async function initialize() {
+      try {
+        debugLog("Loading model...");
+        await tf.setBackend('cpu');
+        model = await tf.loadLayersModel(modelURL);
+        debugLog("Model loaded successfully");
+      } catch (error) {
+        debugLog("Initialization error: " + error.message);
+        startBtn.disabled = true;
+        statusEl.textContent = "Recording Status: Initialization Failed";
+      }
     }
 
-    // Initialize
-    client.init(appId, async () => {
-        debugLog("Agora initialized successfully.");
-        document.getElementById("recordingStatus").innerText = "Recording Status: Ready";
-        await loadModel();
-    }, (error) => {
-        debugLog("Agora initialization error:", error);
+    startBtn.addEventListener('click', startRecording);
+    stopBtn.addEventListener('click', stopRecording);
+
+    window.addEventListener('beforeunload', () => {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
     });
 
-    // Event Listeners
-    document.getElementById("startBtn").addEventListener("click", startRecording);
-    document.getElementById("stopBtn").addEventListener("click", stopRecording);
+    initialize();
   </script>
 </body>
 </html>
