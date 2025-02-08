@@ -158,10 +158,20 @@ async function startRecording() {
     debugLog("Starting recording...");
     setRecordingState(true);
 
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-      audio: true,
-      video: false // explicitly disable video
+   const stream = await navigator.mediaDevices.getUserMedia({ 
+    audio: true,
+    video: false
+}).catch(function(err) {
+    debugLog("Need to request permissions first");
+    return navigator.permissions.query({name:'microphone'})
+      .then(function(permissionStatus) {
+        if (permissionStatus.state === 'granted') {
+            return navigator.mediaDevices.getUserMedia({ audio: true });
+        } else {
+            throw new Error("Please allow microphone access in your browser");
+        }
     });
+});
 
     // Create and resume AudioContext after user gesture
     const audioContext = new AudioContext();
