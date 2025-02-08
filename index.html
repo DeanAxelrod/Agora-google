@@ -143,70 +143,46 @@
       }
     }
 
-async function startRecording() {
+function startRecording() {
     debugLog("Button clicked - attempting to start recording");
-    try {
-        // Resume audio context first
-        const audioContext = new AudioContext();
-        await audioContext.resume();
+    
+    // Create and resume audio context first
+    const audioContext = new AudioContext();
+    audioContext.resume().then(() => {
         debugLog("Audio context resumed");
         
-        debugLog("Requesting permissions...");
-        const stream = await navigator.mediaDevices.getUserMedia({
+        // Request microphone access
+        navigator.mediaDevices.getUserMedia({
             audio: true,
             video: false
+        }).then(stream => {
+            debugLog("Got audio stream, starting recording...");
+            setRecordingState(true);
+
+            mediaRecorder = new MediaRecorder(stream);
+            recordedChunks = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    recordedChunks.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstart = () => {
+                debugLog("MediaRecorder started");
+            };
+
+            mediaRecorder.start();
+        }).catch(error => {
+            console.log("Error details:", error);
+            debugLog("Error starting recording: " + error.message);
+            setRecordingState(false);
+            recordedChunks = [];
+            window.parent.postMessage("Error: " + error.message, '*');
         });
-        
-        debugLog("Got audio stream, starting recording...");
-        setRecordingState(true);
-
-        mediaRecorder = new MediaRecorder(stream);
-        recordedChunks = [];
-
-        mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-                recordedChunks.push(event.data);
-            }
-        };
-
-        mediaRecorder.onstart = () => {
-            debugLog("MediaRecorder started");
-        };
-
-        mediaRecorder.start();
-    } catch (error) {
-        debugLog("Error starting recording: " + error.message);
-        setRecordingState(false);
-        recordedChunks = [];
-        window.parent.postMessage("Error: " + error.message, '*');
-        return;
-    }
-}
-
-    // Create and resume AudioContext after user gesture
-    const audioContext = new AudioContext();
-    await audioContext.resume();
-
-    mediaRecorder = new MediaRecorder(stream);
-    recordedChunks = [];
-
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        recordedChunks.push(event.data);
-      }
-    };
-
-    mediaRecorder.onstart = () => {
-      debugLog("MediaRecorder started");
-    };
-
-    mediaRecorder.start();
- } catch (error) {
-    debugLog("Error starting recording: " + error.message);
-    setRecordingState(false);
-    recordedChunks = [];  // Clear any data
-    window.parent.postMessage("Error: " + error.message, '*');
-    return;  // Stop execution here
+    }).catch(error => {
+        debugLog("Error resuming audio context: " + error.message);
+    });
 }
 
    async function stopRecording() {
@@ -269,10 +245,7 @@ window.parent.postMessage(classificationLabel, '*');
       }
     }
 
-startBtn.addEventListener('click', async () => {
-    console.log("Start button clicked");
-    await startRecording();
-});
+    startBtn.addEventListener('click', startRecording);
     stopBtn.addEventListener('click', stopRecording);
 
     window.addEventListener('beforeunload', () => {
