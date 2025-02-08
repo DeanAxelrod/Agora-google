@@ -2,34 +2,81 @@
 <html>
 <head>
   <title>Agora Voice Recorder with Classification</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands"></script>
   <script src="https://cdn.agora.io/sdk/release/AgoraRTCSDK-3.6.9.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; }
-    .button-container { margin: 20px 0; }
+    body { 
+      font-family: Arial, sans-serif; 
+      margin: 0; 
+      padding: 20px; 
+      box-sizing: border-box; 
+    }
+    .container { 
+      max-width: 600px; 
+      margin: 0 auto; 
+    }
+    .button-container { 
+      margin: 20px 0; 
+      display: flex; 
+      justify-content: center; 
+      gap: 10px; 
+    }
     button {
-      margin: 5px; padding: 15px 30px; cursor: pointer;
-      background-color: #4CAF50; color: white; border: none;
-      border-radius: 4px; font-size: 16px; min-width: 200px;
+      margin: 5px; 
+      padding: 15px 30px; 
+      cursor: pointer;
+      background-color: #4CAF50; 
+      color: white; 
+      border: none;
+      border-radius: 4px; 
+      font-size: 16px; 
+      min-width: 200px;
       transition: all 0.3s ease;
     }
-    button:disabled { background-color: #cccccc; cursor: not-allowed; }
-    .stop-button { background-color: #cccccc; }
-    .stop-button.recording { background-color: #f44336 !important; }  /* Red when recording */
-    #debug { margin-top: 20px; padding: 10px; border: 1px solid #ccc; max-height: 300px; overflow-y: auto; }
-    .status { font-size: 18px; margin: 10px 0; }
+    button:disabled { 
+      background-color: #cccccc; 
+      cursor: not-allowed; 
+    }
+    .stop-button { 
+      background-color: #cccccc; 
+    }
+    .stop-button.recording { 
+      background-color: #f44336 !important; 
+    }
+    #debug { 
+      margin-top: 20px; 
+      padding: 10px; 
+      border: 1px solid #ccc; 
+      max-height: 300px; 
+      overflow-y: auto; 
+      font-size: 12px; 
+    }
+    .status { 
+      font-size: 18px; 
+      margin: 10px 0; 
+      text-align: center; 
+    }
+    #permissionMessage {
+      color: red;
+      text-align: center;
+      margin-bottom: 20px;
+    }
   </style>
 </head>
 <body>
-  <h1>Agora Voice Recorder with Classification</h1>
-  <div class="button-container">
-    <button id="startBtn">Start Recording</button>
-    <button id="stopBtn" class="stop-button" disabled>Stop Recording</button>
+  <div class="container">
+    <h1>Agora Voice Recorder with Classification</h1>
+    <div id="permissionMessage"></div>
+    <div class="button-container">
+      <button id="startBtn">Start Recording</button>
+      <button id="stopBtn" class="stop-button" disabled>Stop Recording</button>
+    </div>
+    <p id="recordingStatus" class="status">Recording Status: Ready</p>
+    <p id="classificationResult" class="status">Classification Result: N/A</p>
+    <div id="debug"></div>
   </div>
-  <p id="recordingStatus" class="status">Recording Status: Ready</p>
-  <p id="classificationResult" class="status">Classification Result: N/A</p>
-  <div id="debug"></div>
 
   <script>
     const appId = "25336bcd01664c70870804ba0b7e1b30";
@@ -44,13 +91,15 @@
     const stopBtn = document.getElementById('stopBtn');
     const statusEl = document.getElementById('recordingStatus');
     const resultEl = document.getElementById('classificationResult');
+    const permissionMsgEl = document.getElementById('permissionMessage');
 
     function debugLog(message) {
       const debugDiv = document.getElementById('debug');
       const logEntry = document.createElement('p');
-      logEntry.textContent = message;
+      logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
       debugDiv.appendChild(logEntry);
       debugDiv.scrollTop = debugDiv.scrollHeight;
+      console.log(message); // Also log to console for additional debugging
     }
 
     function setRecordingState(recording) {
@@ -58,11 +107,50 @@
       stopBtn.disabled = !recording;
       statusEl.textContent = `Recording Status: ${recording ? 'Recording' : 'Ready'}`;
 
-      // Add or remove the 'recording' class based on the state
       if (recording) {
         stopBtn.classList.add('recording');
       } else {
         stopBtn.classList.remove('recording');
+      }
+    }
+
+    async function checkMicrophonePermission() {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('getUserMedia not supported');
+        }
+
+        // Try to query permissions if supported
+        if (navigator.permissions) {
+          const permissionStatus = await navigator.permissions.query({ name: 'microphone' });
+          debugLog(`Microphone Permission Status: ${permissionStatus.state}`);
+
+          permissionStatus.onchange = () => {
+            debugLog(`Microphone permission changed to: ${permissionStatus.state}`);
+          };
+
+          if (permissionStatus.state === 'denied') {
+            permissionMsgEl.textContent = 'Microphone access is blocked. Please enable in device settings.';
+            throw new Error('Microphone access denied');
+          }
+        }
+
+        // Attempt to get user media to verify real-time access
+        await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          } 
+        });
+
+        permissionMsgEl.textContent = ''; // Clear any previous error messages
+        return true;
+      } catch (error) {
+        debugLog(`Microphone Permission Error: ${error.message}`);
+        permissionMsgEl.textContent = `Microphone Access Error: ${error.message}. Please check browser settings.`;
+        startBtn.disabled = true;
+        return false;
       }
     }
 
@@ -96,21 +184,14 @@
         const spectrogramTensor = tf.tensor2d(spectrogramData);
         debugLog(`Spectrogram created with shape: ${spectrogramTensor.shape}`);
 
-        // Adjust the target shape to [43, 232]
-        const targetHeight = 43; // Expected by the model
-        const targetWidth = 232; // Expected by the model
+        const targetHeight = 43;
+        const targetWidth = 232;
 
-        // Add an extra dimension (channel) before resizing: [height, width, 1]
         const spectrogramWithChannel = spectrogramTensor.reshape([1, spectrogramTensor.shape[0], spectrogramTensor.shape[1], 1]);
-
-        // Resize the spectrogram to match the target dimensions
         const resizedSpectrogram = tf.image.resizeBilinear(spectrogramWithChannel, [targetHeight, targetWidth]);
         spectrogramTensor.dispose();
 
-        // Normalize the spectrogram
         const normalizedSpectrogram = resizedSpectrogram.div(tf.max(resizedSpectrogram));
-
-        // Return the spectrogram reshaped to match model input shape (1, 43, 232, 1)
         return normalizedSpectrogram.reshape([1, targetHeight, targetWidth, 1]);
       } catch (error) {
         debugLog("Error creating spectrogram: " + error.message);
@@ -145,10 +226,23 @@
 
     async function startRecording() {
       try {
+        // Ensure microphone permission is granted
+        const hasPermission = await checkMicrophonePermission();
+        if (!hasPermission) {
+          debugLog("Microphone permission not granted");
+          return;
+        }
+
         debugLog("Starting recording...");
         setRecordingState(true);
 
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          } 
+        });
 
         mediaRecorder = new MediaRecorder(stream);
         recordedChunks = [];
@@ -166,6 +260,7 @@
         mediaRecorder.start();
       } catch (error) {
         debugLog("Error starting recording: " + error.message);
+        permissionMsgEl.textContent = `Recording Error: ${error.message}`;
         setRecordingState(false);
       }
     }
@@ -190,11 +285,21 @@
           try {
             const classificationLabel = await classifyAudio(audioBlob);
             resultEl.textContent = "Classification Result: " + classificationLabel;
-            window.parent.postMessage(classificationLabel, '*');
+            
+            // Send classification via postMessage with specific data
+            window.parent.postMessage({
+              type: 'audioClassification',
+              classification: classificationLabel
+            }, '*');
+            
             debugLog("Classification complete: " + classificationLabel);
           } catch (error) {
             debugLog("Classification failed: " + error.message);
             resultEl.textContent = "Classification Result: Error";
+            window.parent.postMessage({
+              type: 'audioClassificationError',
+              error: error.message
+            }, '*');
           }
         }
 
@@ -208,17 +313,38 @@
     async function initialize() {
       try {
         debugLog("Loading model...");
+        
+        // Check for WebML and TensorFlow support
+        if (!window.tf) {
+          throw new Error('TensorFlow.js not loaded');
+        }
+
         await tf.setBackend('cpu');
         model = await tf.loadLayersModel(modelURL);
         debugLog("Model loaded successfully");
+
+        // Enable start button only after model is loaded
+        startBtn.disabled = false;
+        statusEl.textContent = "Recording Status: Ready";
       } catch (error) {
         debugLog("Initialization error: " + error.message);
         startBtn.disabled = true;
-        statusEl.textContent = "Recording Status: Initialization Failed";
+        statusEl.textContent = "Recording Initialization Failed";
+        permissionMsgEl.textContent = `Initialization Error: ${error.message}`;
       }
     }
 
-    startBtn.addEventListener('click', startRecording);
+    // Event Listeners
+    startBtn.addEventListener('click', async () => {
+      try {
+        // Ensure this is directly triggered by user interaction
+        await checkMicrophonePermission();
+        await startRecording();
+      } catch (error) {
+        debugLog("Recording start error: " + error.message);
+      }
+    });
+
     stopBtn.addEventListener('click', stopRecording);
 
     window.addEventListener('beforeunload', () => {
@@ -227,6 +353,7 @@
       }
     });
 
+    // Initialize on page load
     initialize();
   </script>
 </body>
