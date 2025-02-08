@@ -269,7 +269,10 @@ window.parent.postMessage(classificationLabel, '*');
       }
     }
 
-    startBtn.addEventListener('click', startRecording);
+startBtn.addEventListener('click', async () => {
+    console.log("Start button clicked");
+    await startRecording();
+});
     stopBtn.addEventListener('click', stopRecording);
 
     window.addEventListener('beforeunload', () => {
