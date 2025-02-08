@@ -176,35 +176,30 @@ function stopRecording() {
     debugLog("Stopping recording...");
     statusEl.textContent = "Recording Status: Processing...";
 
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-        mediaRecorder.stop();
-        mediaRecorder.onstop = async function() {
-            debugLog("MediaRecorder stopped");
-            
-            if (recordedChunks.length > 0) {
-                const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-                debugLog("Processing audio...");
-
-                try {
-                    const classificationLabel = await classifyAudio(audioBlob);
-                    resultEl.textContent = "Classification Result: " + classificationLabel;
-                    window.parent.postMessage(classificationLabel, '*');
-                    debugLog("Classification complete: " + classificationLabel);
-                } catch (error) {
-                    debugLog("Classification failed: " + error.message);
-                    resultEl.textContent = "Classification Result: Error";
-                    window.parent.postMessage("Error: Classification failed", '*');
-                }
-            } else {
-                debugLog("No audio data recorded");
-                window.parent.postMessage("Error: No audio data recorded", '*');
-            }
-        };
-    } else {
-        debugLog("MediaRecorder not in recording state");
-        window.parent.postMessage("Error: Not recording", '*');
+    if (!mediaRecorder) {
+        debugLog("No media recorder found");
+        return;
     }
-    
+
+    mediaRecorder.stop();
+    mediaRecorder.onstop = function() {
+        debugLog("MediaRecorder stopped");
+        
+        if (recordedChunks && recordedChunks.length > 0) {
+            const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+            debugLog("Processing audio...");
+
+            classifyAudio(audioBlob).then(classificationLabel => {
+                resultEl.textContent = "Classification Result: " + classificationLabel;
+                window.parent.postMessage(classificationLabel, '*');
+                debugLog("Classification complete: " + classificationLabel);
+            }).catch(error => {
+                debugLog("Classification failed: " + error.message);
+                resultEl.textContent = "Classification Result: Error";
+            });
+        }
+    };
+
     setRecordingState(false);
 }
 
