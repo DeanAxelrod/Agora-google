@@ -191,25 +191,32 @@ async function startRecording() {
     };
 
     mediaRecorder.start();
-  } catch (error) {
+ } catch (error) {
     debugLog("Error starting recording: " + error.message);
     setRecordingState(false);
-    // Send error back to Thunkable
-    window.parent.postMessage({error: error.message}, '*');
-  }
+    recordedChunks = [];  // Clear any data
+    window.parent.postMessage("Error: " + error.message, '*');
+    return;  // Stop execution here
 }
 
-    async function stopRecording() {
-      try {
+   async function stopRecording() {
+    try {
         debugLog("Stopping recording...");
         statusEl.textContent = "Recording Status: Processing...";
 
+        // Add check for valid recording at the start
+        if (!mediaRecorder || mediaRecorder.state === 'inactive' || recordedChunks.length === 0) {
+            debugLog("No valid recording to process");
+            window.parent.postMessage("Error: No audio was recorded. Please allow microphone access.", '*');
+            return;
+        }
+
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-          await new Promise(resolve => {
-            mediaRecorder.onstop = resolve;
-            mediaRecorder.stop();
-          });
-          debugLog("MediaRecorder stopped");
+            await new Promise(resolve => {
+                mediaRecorder.onstop = resolve;
+                mediaRecorder.stop();
+            });
+            debugLog("MediaRecorder stopped");
         }
 
         if (recordedChunks.length > 0) {
