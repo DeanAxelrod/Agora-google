@@ -190,7 +190,7 @@
           try {
             const classificationLabel = await classifyAudio(audioBlob);
             resultEl.textContent = "Classification Result: " + classificationLabel;
-            window.location.href = "thunkable://" + classificationLabel;
+            window.parent.postMessage(classificationLabel, '*');
             debugLog("Classification complete: " + classificationLabel);
           } catch (error) {
             debugLog("Classification failed: " + error.message);
