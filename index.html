@@ -172,52 +172,41 @@ function startRecording() {
     });
 }
 
-   async function stopRecording() {
-    try {
-        debugLog("Stopping recording...");
-        statusEl.textContent = "Recording Status: Processing...";
+function stopRecording() {
+    debugLog("Stopping recording...");
+    statusEl.textContent = "Recording Status: Processing...";
 
-        // Add check for valid recording at the start
-        if (!mediaRecorder || mediaRecorder.state === 'inactive' || recordedChunks.length === 0) {
-            debugLog("No valid recording to process");
-            window.parent.postMessage("Error: No audio was recorded. Please allow microphone access.", '*');
-            return;
-        }
-
-        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-            await new Promise(resolve => {
-                mediaRecorder.onstop = resolve;
-                mediaRecorder.stop();
-            });
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        mediaRecorder.onstop = async function() {
             debugLog("MediaRecorder stopped");
-        }
+            
+            if (recordedChunks.length > 0) {
+                const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+                debugLog("Processing audio...");
 
-        if (recordedChunks.length > 0) {
-          const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-          debugLog("Processing audio...");
-
-          try {
-            const classificationLabel = await classifyAudio(audioBlob);
-            resultEl.textContent = "Classification Result: " + classificationLabel;
-            if (recordedChunks.length === 0) {
-    debugLog("No audio was recorded");
-    window.parent.postMessage("Error: No audio recorded due to microphone permissions", '*');
-    return;
-}
-window.parent.postMessage(classificationLabel, '*');
-            debugLog("Classification complete: " + classificationLabel);
-          } catch (error) {
-            debugLog("Classification failed: " + error.message);
-            resultEl.textContent = "Classification Result: Error";
-          }
-        }
-
-        setRecordingState(false);
-      } catch (error) {
-        debugLog("Error stopping recording: " + error.message);
-        setRecordingState(false);
-      }
+                try {
+                    const classificationLabel = await classifyAudio(audioBlob);
+                    resultEl.textContent = "Classification Result: " + classificationLabel;
+                    window.parent.postMessage(classificationLabel, '*');
+                    debugLog("Classification complete: " + classificationLabel);
+                } catch (error) {
+                    debugLog("Classification failed: " + error.message);
+                    resultEl.textContent = "Classification Result: Error";
+                    window.parent.postMessage("Error: Classification failed", '*');
+                }
+            } else {
+                debugLog("No audio data recorded");
+                window.parent.postMessage("Error: No audio data recorded", '*');
+            }
+        };
+    } else {
+        debugLog("MediaRecorder not in recording state");
+        window.parent.postMessage("Error: Not recording", '*');
     }
+    
+    setRecordingState(false);
+}
 
     async function initialize() {
       try {
