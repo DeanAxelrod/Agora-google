@@ -144,44 +144,31 @@
     }
 
 function startRecording() {
-    debugLog("Button clicked - attempting to start recording");
+    debugLog("Starting recording...");
     
-    // Create and resume audio context first
-    const audioContext = new AudioContext();
-    audioContext.resume().then(() => {
-        debugLog("Audio context resumed");
-        
-        // Request microphone access
-        navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video: false
-        }).then(stream => {
-            debugLog("Got audio stream, starting recording...");
-            setRecordingState(true);
+    navigator.mediaDevices.getUserMedia({ 
+        audio: true 
+    }).then(function(stream) {
+        setRecordingState(true);
 
-            mediaRecorder = new MediaRecorder(stream);
-            recordedChunks = [];
+        mediaRecorder = new MediaRecorder(stream);
+        recordedChunks = [];
 
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    recordedChunks.push(event.data);
-                }
-            };
+        mediaRecorder.ondataavailable = function(event) {
+            if (event.data.size > 0) {
+                recordedChunks.push(event.data);
+            }
+        };
 
-            mediaRecorder.onstart = () => {
-                debugLog("MediaRecorder started");
-            };
+        mediaRecorder.onstart = function() {
+            debugLog("MediaRecorder started");
+        };
 
-            mediaRecorder.start();
-        }).catch(error => {
-            console.log("Error details:", error);
-            debugLog("Error starting recording: " + error.message);
-            setRecordingState(false);
-            recordedChunks = [];
-            window.parent.postMessage("Error: " + error.message, '*');
-        });
-    }).catch(error => {
-        debugLog("Error resuming audio context: " + error.message);
+        mediaRecorder.start();
+    }).catch(function(error) {
+        debugLog("Error starting recording: " + error.message);
+        setRecordingState(false);
+        window.parent.postMessage("Error: " + error.message, '*');
     });
 }
 
