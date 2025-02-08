@@ -144,27 +144,33 @@
     }
 
 function startRecording() {
-    debugLog("Starting recording...");
+    debugLog("Starting recording attempt...");
     
     navigator.mediaDevices.getUserMedia({ 
         audio: true 
     }).then(function(stream) {
+        debugLog("Got media stream");
         setRecordingState(true);
 
         mediaRecorder = new MediaRecorder(stream);
         recordedChunks = [];
+        debugLog("MediaRecorder created");
 
         mediaRecorder.ondataavailable = function(event) {
+            debugLog("Data available: " + event.data.size + " bytes");
             if (event.data.size > 0) {
                 recordedChunks.push(event.data);
+                debugLog("Added chunk, total chunks: " + recordedChunks.length);
             }
         };
 
         mediaRecorder.onstart = function() {
-            debugLog("MediaRecorder started");
+            debugLog("MediaRecorder started successfully");
         };
 
-        mediaRecorder.start();
+        // Request data every second
+        mediaRecorder.start(1000);
+        debugLog("Called start on MediaRecorder");
     }).catch(function(error) {
         debugLog("Error starting recording: " + error.message);
         setRecordingState(false);
@@ -173,32 +179,46 @@ function startRecording() {
 }
 
 function stopRecording() {
-    debugLog("Stopping recording...");
+    debugLog("Stop recording called");
     statusEl.textContent = "Recording Status: Processing...";
 
     if (!mediaRecorder) {
-        debugLog("No media recorder found");
+        debugLog("ERROR: No media recorder found");
         return;
     }
 
-    mediaRecorder.stop();
-    mediaRecorder.onstop = function() {
-        debugLog("MediaRecorder stopped");
-        
-        if (recordedChunks && recordedChunks.length > 0) {
-            const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-            debugLog("Processing audio...");
+    debugLog("Current mediaRecorder state: " + mediaRecorder.state);
+    debugLog("Current chunks count: " + (recordedChunks ? recordedChunks.length : 'no chunks'));
 
-            classifyAudio(audioBlob).then(classificationLabel => {
-                resultEl.textContent = "Classification Result: " + classificationLabel;
-                window.parent.postMessage(classificationLabel, '*');
-                debugLog("Classification complete: " + classificationLabel);
-            }).catch(error => {
-                debugLog("Classification failed: " + error.message);
-                resultEl.textContent = "Classification Result: Error";
-            });
-        }
-    };
+    if (mediaRecorder.state === 'recording') {
+        debugLog("Stopping mediaRecorder");
+        
+        // Set up onstop before calling stop
+        mediaRecorder.onstop = function() {
+            debugLog("MediaRecorder stop event triggered");
+            
+            if (recordedChunks && recordedChunks.length > 0) {
+                debugLog("Creating blob from " + recordedChunks.length + " chunks");
+                const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+                debugLog("Created blob of size: " + audioBlob.size);
+
+                classifyAudio(audioBlob).then(classificationLabel => {
+                    debugLog("Classification successful: " + classificationLabel);
+                    resultEl.textContent = "Classification Result: " + classificationLabel;
+                    window.parent.postMessage(classificationLabel, '*');
+                }).catch(error => {
+                    debugLog("Classification error: " + error.message);
+                    resultEl.textContent = "Classification Result: Error";
+                });
+            } else {
+                debugLog("No chunks available for processing");
+            }
+        };
+
+        mediaRecorder.stop();
+    } else {
+        debugLog("MediaRecorder not in recording state");
+    }
 
     setRecordingState(false);
 }
