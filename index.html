@@ -146,21 +146,40 @@
 function startRecording() {
     debugLog("Starting recording attempt...");
     
-    navigator.mediaDevices.getUserMedia({ 
-        audio: true 
-    }).then(function(stream) {
+    // First check if we can access media devices
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        debugLog("Media devices not supported");
+        window.parent.postMessage("Error: Media devices not supported", '*');
+        return;
+    }
+
+    // Request permissions with more specific constraints
+    const constraints = {
+        audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+        },
+        video: false
+    };
+
+    // Add permission policy meta tag dynamically
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'permissions-policy');
+    meta.setAttribute('content', 'microphone=()');
+    document.head.appendChild(meta);
+
+    navigator.mediaDevices.getUserMedia(constraints)
+    .then(function(stream) {
         debugLog("Got media stream");
         setRecordingState(true);
 
         mediaRecorder = new MediaRecorder(stream);
         recordedChunks = [];
-        debugLog("MediaRecorder created");
 
         mediaRecorder.ondataavailable = function(event) {
-            debugLog("Data available: " + event.data.size + " bytes");
             if (event.data.size > 0) {
                 recordedChunks.push(event.data);
-                debugLog("Added chunk, total chunks: " + recordedChunks.length);
             }
         };
 
@@ -168,13 +187,17 @@ function startRecording() {
             debugLog("MediaRecorder started successfully");
         };
 
-        // Request data every second
-        mediaRecorder.start(1000);
-        debugLog("Called start on MediaRecorder");
-    }).catch(function(error) {
+        mediaRecorder.start();
+    })
+    .catch(function(error) {
         debugLog("Error starting recording: " + error.message);
         setRecordingState(false);
-        window.parent.postMessage("Error: " + error.message, '*');
+        // Send a more user-friendly error message back to Thunkable
+        if (error.name === 'NotAllowedError') {
+            window.parent.postMessage("Please allow microphone access in your browser settings", '*');
+        } else {
+            window.parent.postMessage("Error: " + error.message, '*');
+        }
     });
 }
 
