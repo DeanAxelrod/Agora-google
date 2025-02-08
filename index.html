@@ -145,81 +145,73 @@
         throw error;
       }
     }
-
+    
 function startRecording() {
     debugLog("Starting recording attempt...");
     
-    // Open the recorder in a new window
-    const recorderWindow = window.open('', 'Recorder', 'width=400,height=300');
-    if (recorderWindow) {
-        recorderWindow.document.write(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Voice Recorder</title>
-                <meta http-equiv="Feature-Policy" content="microphone *">
-                <style>
-                    body { font-family: Arial; text-align: center; padding: 20px; }
-                    button { padding: 10px 20px; margin: 10px; }
-                </style>
-            </head>
-            <body>
-                <h2>Voice Recorder</h2>
-                <button id="recordBtn">Start Recording</button>
-                <p id="status">Ready to record</p>
-                <script>
-                    let mediaRecorder;
-                    let recordedChunks = [];
-                    
-                    document.getElementById('recordBtn').onclick = async function() {
-                        try {
-                            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                            mediaRecorder = new MediaRecorder(stream);
-                            recordedChunks = [];
-                            
-                            mediaRecorder.ondataavailable = (e) => {
-                                if (e.data.size > 0) recordedChunks.push(e.data);
-                            };
-                            
-                            mediaRecorder.onstop = async () => {
-                                const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-                                window.opener.postMessage({ type: 'recording', data: audioBlob }, '*');
-                                window.close();
-                            };
-                            
-                            mediaRecorder.start();
-                            this.textContent = 'Stop Recording';
-                            document.getElementById('status').textContent = 'Recording...';
-                            
-                            this.onclick = () => {
-                                mediaRecorder.stop();
-                                stream.getTracks().forEach(track => track.stop());
-                            };
-                        } catch (error) {
-                            document.getElementById('status').textContent = 'Error: ' + error.message;
-                        }
-                    };
-                </script>
-            </body>
-            </html>
-        `);
+    // First check if browser supports required APIs
+    if (!navigator?.mediaDevices?.getUserMedia) {
+        debugLog("Media devices API not supported");
+        window.parent.postMessage("Error: Browser doesn't support recording", '*');
+        return;
     }
+
+    // Request permissions first
+    navigator.permissions.query({ name: 'microphone' })
+        .then(permissionStatus => {
+            if (permissionStatus.state === 'granted') {
+                initializeRecording();
+            } else {
+                // Try to get permission
+                navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: { ideal: true },
+                        noiseSuppression: { ideal: true },
+                        autoGainControl: { ideal: true }
+                    }
+                })
+                .then(() => initializeRecording())
+                .catch(error => {
+                    debugLog("Permission error: " + error.message);
+                    window.parent.postMessage("Error: Please allow microphone access", '*');
+                });
+            }
+        })
+        .catch(error => {
+            debugLog("Permission check failed: " + error.message);
+            // Try direct recording as fallback
+            initializeRecording();
+        });
 }
 
-// Add this event listener to receive the recording
-window.addEventListener('message', async function(event) {
-    if (event.data && event.data.type === 'recording') {
-        const audioBlob = event.data.data;
-        try {
-            const classificationLabel = await classifyAudio(audioBlob);
-            resultEl.textContent = "Classification Result: " + classificationLabel;
-            window.parent.postMessage(classificationLabel, '*');
-        } catch (error) {
-            debugLog("Classification failed: " + error.message);
-            resultEl.textContent = "Classification Result: Error";
-        }
-    }
-});
+function initializeRecording() {
+    navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+            debugLog("Got audio stream");
+            setRecordingState(true);
+
+            mediaRecorder = new MediaRecorder(stream);
+            recordedChunks = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    recordedChunks.push(event.data);
+                    debugLog("Recorded chunk of size: " + event.data.size);
+                }
+            };
+
+            mediaRecorder.onstart = () => {
+                debugLog("MediaRecorder started successfully");
+            };
+
+            mediaRecorder.start();
+        })
+        .catch(error => {
+            debugLog("Recording initialization error: " + error.message);
+            setRecordingState(false);
+            window.parent.postMessage("Error: " + error.message, '*');
+        });
+}
 
 function stopRecording() {
     debugLog("Stop recording called");
