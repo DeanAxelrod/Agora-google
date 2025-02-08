@@ -219,7 +219,12 @@ async function startRecording() {
           try {
             const classificationLabel = await classifyAudio(audioBlob);
             resultEl.textContent = "Classification Result: " + classificationLabel;
-            window.parent.postMessage(classificationLabel, '*');
+            if (recordedChunks.length === 0) {
+    debugLog("No audio was recorded");
+    window.parent.postMessage("Error: No audio recorded due to microphone permissions", '*');
+    return;
+}
+window.parent.postMessage(classificationLabel, '*');
             debugLog("Classification complete: " + classificationLabel);
           } catch (error) {
             debugLog("Classification failed: " + error.message);
