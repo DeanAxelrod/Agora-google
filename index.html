@@ -144,9 +144,14 @@
     }
 
 async function startRecording() {
+    debugLog("Button clicked - attempting to start recording");
     try {
-        debugLog("Requesting permissions...");
+        // Resume audio context first
+        const audioContext = new AudioContext();
+        await audioContext.resume();
+        debugLog("Audio context resumed");
         
+        debugLog("Requesting permissions...");
         const stream = await navigator.mediaDevices.getUserMedia({
             audio: true,
             video: false
