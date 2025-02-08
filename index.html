@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta http-equiv="Feature-Policy" content="microphone *">
+  <meta http-equiv="Permissions-Policy" content="microphone=*, camera=()">
+  <meta name="permissions-policy" content="microphone=*">
   <title>Agora Voice Recorder with Classification</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands"></script>
@@ -146,29 +149,20 @@
 function startRecording() {
     debugLog("Starting recording attempt...");
     
-    // First check if we can access media devices
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        debugLog("Media devices not supported");
-        window.parent.postMessage("Error: Media devices not supported", '*');
-        return;
-    }
-
-    // Request permissions with more specific constraints
+    // Check if we're in an iframe
+    const isIframe = window !== window.top;
+    
+    // Set up audio constraints
     const constraints = {
         audio: {
             echoCancellation: true,
             noiseSuppression: true,
-            autoGainControl: true
-        },
-        video: false
+            autoGainControl: true,
+            sampleRate: 44100
+        }
     };
 
-    // Add permission policy meta tag dynamically
-    const meta = document.createElement('meta');
-    meta.setAttribute('name', 'permissions-policy');
-    meta.setAttribute('content', 'microphone=()');
-    document.head.appendChild(meta);
-
+    // Request microphone access
     navigator.mediaDevices.getUserMedia(constraints)
     .then(function(stream) {
         debugLog("Got media stream");
@@ -192,9 +186,14 @@ function startRecording() {
     .catch(function(error) {
         debugLog("Error starting recording: " + error.message);
         setRecordingState(false);
-        // Send a more user-friendly error message back to Thunkable
+        
+        // Handle specific error cases
         if (error.name === 'NotAllowedError') {
-            window.parent.postMessage("Please allow microphone access in your browser settings", '*');
+            if (isIframe) {
+                window.parent.postMessage("Error: Microphone access is blocked in the embedded view. Please try opening in a new window.", '*');
+            } else {
+                window.parent.postMessage("Error: Please allow microphone access in your browser settings", '*');
+            }
         } else {
             window.parent.postMessage("Error: " + error.message, '*');
         }
