@@ -2,6 +2,7 @@
 <html>
 <head>
   <title>Agora Voice Recorder with Classification</title>
+  <meta name="permissions-policy" content="microphone=*, camera=()">
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands"></script>
   <script src="https://cdn.agora.io/sdk/release/AgoraRTCSDK-3.6.9.js"></script>
@@ -143,32 +144,50 @@
       }
     }
 
-    async function startRecording() {
-      try {
-        debugLog("Starting recording...");
-        setRecordingState(true);
-
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-        mediaRecorder = new MediaRecorder(stream);
-        recordedChunks = [];
-
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            recordedChunks.push(event.data);
-          }
-        };
-
-        mediaRecorder.onstart = () => {
-          debugLog("MediaRecorder started");
-        };
-
-        mediaRecorder.start();
-      } catch (error) {
-        debugLog("Error starting recording: " + error.message);
-        setRecordingState(false);
-      }
+// Replace the startRecording function with:
+async function startRecording() {
+  try {
+    debugLog("Requesting permissions...");
+    
+    // First explicitly request permissions
+    const permissionResult = await navigator.permissions.query({ name: 'microphone' });
+    if (permissionResult.state === 'denied') {
+      throw new Error('Microphone permission denied');
     }
+    
+    debugLog("Starting recording...");
+    setRecordingState(true);
+
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      audio: true,
+      video: false // explicitly disable video
+    });
+
+    // Create and resume AudioContext after user gesture
+    const audioContext = new AudioContext();
+    await audioContext.resume();
+
+    mediaRecorder = new MediaRecorder(stream);
+    recordedChunks = [];
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        recordedChunks.push(event.data);
+      }
+    };
+
+    mediaRecorder.onstart = () => {
+      debugLog("MediaRecorder started");
+    };
+
+    mediaRecorder.start();
+  } catch (error) {
+    debugLog("Error starting recording: " + error.message);
+    setRecordingState(false);
+    // Send error back to Thunkable
+    window.parent.postMessage({error: error.message}, '*');
+  }
+}
 
     async function stopRecording() {
       try {
