@@ -1,9 +1,6 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta http-equiv="Feature-Policy" content="microphone *">
-  <meta http-equiv="Permissions-Policy" content="microphone=*, camera=()">
-  <meta name="permissions-policy" content="microphone=*">
   <title>Agora Voice Recorder with Classification</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands"></script>
@@ -145,118 +142,68 @@
         throw error;
       }
     }
-    
-function startRecording() {
-    debugLog("Starting recording attempt...");
-    
-    // First check if browser supports required APIs
-    if (!navigator?.mediaDevices?.getUserMedia) {
-        debugLog("Media devices API not supported");
-        window.parent.postMessage("Error: Browser doesn't support recording", '*');
-        return;
-    }
 
-    // Request permissions first
-    navigator.permissions.query({ name: 'microphone' })
-        .then(permissionStatus => {
-            if (permissionStatus.state === 'granted') {
-                initializeRecording();
-            } else {
-                // Try to get permission
-                navigator.mediaDevices.getUserMedia({ 
-                    audio: {
-                        echoCancellation: { ideal: true },
-                        noiseSuppression: { ideal: true },
-                        autoGainControl: { ideal: true }
-                    }
-                })
-                .then(() => initializeRecording())
-                .catch(error => {
-                    debugLog("Permission error: " + error.message);
-                    window.parent.postMessage("Error: Please allow microphone access", '*');
-                });
-            }
-        })
-        .catch(error => {
-            debugLog("Permission check failed: " + error.message);
-            // Try direct recording as fallback
-            initializeRecording();
-        });
-}
+    async function startRecording() {
+      try {
+        debugLog("Starting recording...");
+        setRecordingState(true);
 
-function initializeRecording() {
-    navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(stream => {
-            debugLog("Got audio stream");
-            setRecordingState(true);
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-            mediaRecorder = new MediaRecorder(stream);
-            recordedChunks = [];
+        mediaRecorder = new MediaRecorder(stream);
+        recordedChunks = [];
 
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    recordedChunks.push(event.data);
-                    debugLog("Recorded chunk of size: " + event.data.size);
-                }
-            };
-
-            mediaRecorder.onstart = () => {
-                debugLog("MediaRecorder started successfully");
-            };
-
-            mediaRecorder.start();
-        })
-        .catch(error => {
-            debugLog("Recording initialization error: " + error.message);
-            setRecordingState(false);
-            window.parent.postMessage("Error: " + error.message, '*');
-        });
-}
-
-function stopRecording() {
-    debugLog("Stop recording called");
-    statusEl.textContent = "Recording Status: Processing...";
-
-    if (!mediaRecorder) {
-        debugLog("ERROR: No media recorder found");
-        return;
-    }
-
-    debugLog("Current mediaRecorder state: " + mediaRecorder.state);
-    debugLog("Current chunks count: " + (recordedChunks ? recordedChunks.length : 'no chunks'));
-
-    if (mediaRecorder.state === 'recording') {
-        debugLog("Stopping mediaRecorder");
-        
-        // Set up onstop before calling stop
-        mediaRecorder.onstop = function() {
-            debugLog("MediaRecorder stop event triggered");
-            
-            if (recordedChunks && recordedChunks.length > 0) {
-                debugLog("Creating blob from " + recordedChunks.length + " chunks");
-                const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-                debugLog("Created blob of size: " + audioBlob.size);
-
-                classifyAudio(audioBlob).then(classificationLabel => {
-                    debugLog("Classification successful: " + classificationLabel);
-                    resultEl.textContent = "Classification Result: " + classificationLabel;
-                    window.parent.postMessage(classificationLabel, '*');
-                }).catch(error => {
-                    debugLog("Classification error: " + error.message);
-                    resultEl.textContent = "Classification Result: Error";
-                });
-            } else {
-                debugLog("No chunks available for processing");
-            }
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            recordedChunks.push(event.data);
+          }
         };
 
-        mediaRecorder.stop();
-    } else {
-        debugLog("MediaRecorder not in recording state");
+        mediaRecorder.onstart = () => {
+          debugLog("MediaRecorder started");
+        };
+
+        mediaRecorder.start();
+      } catch (error) {
+        debugLog("Error starting recording: " + error.message);
+        setRecordingState(false);
+      }
     }
 
-    setRecordingState(false);
-}
+    async function stopRecording() {
+      try {
+        debugLog("Stopping recording...");
+        statusEl.textContent = "Recording Status: Processing...";
+
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          await new Promise(resolve => {
+            mediaRecorder.onstop = resolve;
+            mediaRecorder.stop();
+          });
+          debugLog("MediaRecorder stopped");
+        }
+
+        if (recordedChunks.length > 0) {
+          const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+          debugLog("Processing audio...");
+
+          try {
+            const classificationLabel = await classifyAudio(audioBlob);
+            resultEl.textContent = "Classification Result: " + classificationLabel;
+            window.parent.postMessage(classificationLabel, '*');
+            debugLog("Classification complete: " + classificationLabel);
+          } catch (error) {
+            debugLog("Classification failed: " + error.message);
+            resultEl.textContent = "Classification Result: Error";
+          }
+        }
+
+        setRecordingState(false);
+      } catch (error) {
+        debugLog("Error stopping recording: " + error.message);
+        setRecordingState(false);
+      }
+    }
 
     async function initialize() {
       try {
