@@ -227,13 +227,12 @@ async function classifyAudio(audioBlob) {
         classification: classificationLabel
       }
     };
+    console.log('Attempting to send message');
+    console.log('Message:', JSON.stringify(message));
     debugLog("Sending message: " + JSON.stringify(message));
     
     window.parent.postMessage(message, '*');
-    console.log('Message sent:', classificationLabel);
-    debugLog("Message sent");
-
-    return classificationLabel;
+   console.log('Message sent');
   } catch (error) {
     debugLog("Error: " + error.message);
   }
