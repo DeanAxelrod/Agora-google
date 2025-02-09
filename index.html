@@ -299,50 +299,57 @@ async function classifyAudio(audioBlob) {
       }
     }
 
-    async function stopRecording() {
+async function stopRecording() {
+  try {
+    debugLog("Stopping recording...");
+    statusEl.textContent = "Recording Status: Processing...";
+
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      await new Promise(resolve => {
+        mediaRecorder.onstop = resolve;
+        mediaRecorder.stop();
+      });
+      debugLog("MediaRecorder stopped");
+    }
+
+    if (recordedChunks.length > 0) {
+      const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+      debugLog("Processing audio...");
+
       try {
-        debugLog("Stopping recording...");
-        statusEl.textContent = "Recording Status: Processing...";
-
-        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-          await new Promise(resolve => {
-            mediaRecorder.onstop = resolve;
-            mediaRecorder.stop();
-          });
-          debugLog("MediaRecorder stopped");
-        }
-
-        if (recordedChunks.length > 0) {
-          const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-          debugLog("Processing audio...");
-
-          try {
-            const classificationLabel = await classifyAudio(audioBlob);
-            resultEl.textContent = "Classification Result: " + classificationLabel;
-            
-            // Send classification via postMessage with specific data
-            window.parent.postMessage({
-              type: 'audioClassification',
-              classification: classificationLabel
-           }, '*');
-            
-            debugLog("Classification complete: " + classificationLabel);
-          } catch (error) {
-            debugLog("Classification failed: " + error.message);
-            resultEl.textContent = "Classification Result: Error";
-            window.parent.postMessage({
-              type: 'audioClassificationError',
-              error: error.message
-            }, '*');
+        const classificationLabel = await classifyAudio(audioBlob);
+        resultEl.textContent = "Classification Result: " + classificationLabel;
+        
+        // Use the same message format as in classifyAudio
+        const message = {
+          data: {
+            type: 'audioClassification',
+            source: 'recorder',
+            classification: classificationLabel
           }
-        }
-
-        setRecordingState(false);
+        };
+        window.parent.postMessage(message, '*');
+        
+        debugLog("Classification complete: " + classificationLabel);
       } catch (error) {
-        debugLog("Error stopping recording: " + error.message);
-        setRecordingState(false);
+        debugLog("Classification failed: " + error.message);
+        resultEl.textContent = "Classification Result: Error";
+        window.parent.postMessage({
+          data: {
+            type: 'audioClassificationError',
+            source: 'recorder',
+            error: error.message
+          }
+        }, '*');
       }
     }
+
+    setRecordingState(false);
+  } catch (error) {
+    debugLog("Error stopping recording: " + error.message);
+    setRecordingState(false);
+  }
+}
 
 async function initialize() {
   try {
