@@ -305,26 +305,14 @@ async function stopRecording() {
         const classificationLabel = await classifyAudio(audioBlob);
         resultEl.textContent = "Classification Result: " + classificationLabel;
         
-        // Use the same message format as in classifyAudio
-        const message = {
-          data: {
-            type: 'audioClassification',
-            source: 'recorder',
-            classification: classificationLabel
-          }
-        };
-        window.parent.postMessage(message, '*');
-        
+        // Message will be sent from classifyAudio function
         debugLog("Classification complete: " + classificationLabel);
       } catch (error) {
         debugLog("Classification failed: " + error.message);
         resultEl.textContent = "Classification Result: Error";
         window.parent.postMessage({
-          data: {
-            type: 'audioClassificationError',
-            source: 'recorder',
-            error: error.message
-          }
+          type: 'error',
+          message: error.message
         }, '*');
       }
     }
