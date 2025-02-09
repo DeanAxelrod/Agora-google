@@ -219,33 +219,18 @@ async function classifyAudio(audioBlob) {
     const resultIndex = prediction.indexOf(Math.max(...prediction));
     const classificationLabel = classLabels[resultIndex];
 
-    // Add extensive logging
+    // Simplified message sending
     debugLog("Classification result: " + classificationLabel);
     debugLog("Attempting to send message");
 
-    // Try multiple message sending approaches
     try {
-      // Approach 1: Original nested data structure
-      const message = {
-        data: {
-          type: 'audioClassification',
-          source: 'recorder',
-          classification: classificationLabel
-        }
+      const simpleMessage = {
+        type: 'audioClassification',
+        classification: classificationLabel
       };
-      debugLog("Message object: " + JSON.stringify(message));
-
-      // Attempt 1: Standard postMessage
-      window.parent.postMessage(message, '*');
-      debugLog("Message sent using window.parent.postMessage");
-
-      // Attempt 2: Alternative postMessage
-      window.postMessage(message, '*');
-      debugLog("Message sent using window.postMessage");
-
-      // Attempt 3: Direct string conversion
-      window.parent.postMessage(JSON.stringify(message), '*');
-      debugLog("Message sent as JSON string");
+      debugLog("Sending simplified message: " + JSON.stringify(simpleMessage));
+      window.parent.postMessage(simpleMessage, '*');
+      debugLog("Message sent successfully");
     } catch (sendError) {
       debugLog("Error sending message: " + sendError.message);
     }
@@ -357,6 +342,21 @@ async function initialize() {
     await tf.setBackend('cpu');
     model = await tf.loadLayersModel(modelURL);
     debugLog("Model loaded successfully");
+    
+    // Add test message
+    setTimeout(() => {
+      debugLog("Sending test message");
+      try {
+        window.parent.postMessage({
+          type: 'test',
+          message: 'hello'
+        }, '*');
+        debugLog("Test message sent");
+      } catch (error) {
+        debugLog("Error sending test message: " + error.message);
+      }
+    }, 2000);  // Send test message after 2 seconds
+
     startBtn.disabled = false;
     statusEl.textContent = "Recording Status: Ready";
   } catch (error) {
