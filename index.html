@@ -199,30 +199,43 @@
       }
     }
 
-    async function classifyAudio(audioBlob) {
-      try {
-        debugLog("Starting classification...");
-        const audioContext = new AudioContext();
-        const arrayBuffer = await audioBlob.arrayBuffer();
+async function classifyAudio(audioBlob) {
+  try {
+    debugLog("Starting classification...");
+    const audioContext = new AudioContext();
+    const arrayBuffer = await audioBlob.arrayBuffer();
 
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        debugLog("Audio decoded, duration: " + audioBuffer.duration);
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    debugLog("Audio decoded, duration: " + audioBuffer.duration);
 
-        const spectrogram = await createSpectrogram(audioBuffer);
-        const prediction = await model.predict(spectrogram).data();
-        spectrogram.dispose();
+    const spectrogram = await createSpectrogram(audioBuffer);
+    const prediction = await model.predict(spectrogram).data();
+    spectrogram.dispose();
 
-        classLabels.forEach((label, idx) => {
-          debugLog(`${label}: ${(prediction[idx] * 100).toFixed(2)}%`);
-        });
+    classLabels.forEach((label, idx) => {
+      debugLog(`${label}: ${(prediction[idx] * 100).toFixed(2)}%`);
+    });
 
-        const resultIndex = prediction.indexOf(Math.max(...prediction));
-        return classLabels[resultIndex];
-      } catch (error) {
-        debugLog("Classification error: " + error.message);
-        throw error;
-      }
+    const resultIndex = prediction.indexOf(Math.max(...prediction));
+    const classificationLabel = classLabels[resultIndex];
+
+    // Add error handling for postMessage
+    try {
+      window.parent.postMessage({
+        type: 'audioClassification',
+        classification: classificationLabel
+      }, '*');
+      debugLog("Classification sent to parent: " + classificationLabel);
+    } catch (error) {
+      debugLog("Error sending classification: " + error.message);
     }
+
+    return classificationLabel;
+  } catch (error) {
+    debugLog("Classification error: " + error.message);
+    throw error;
+  }
+}
 
     async function startRecording() {
       try {
@@ -287,15 +300,10 @@
             resultEl.textContent = "Classification Result: " + classificationLabel;
             
             // Send classification via postMessage with specific data
-try {
-  window.parent.postMessage({
-    type: 'audioClassification',
-    classification: classificationLabel
-  }, '*');
-  debugLog("Message sent to parent"); // Using your existing debugLog function
-} catch (error) {
-  debugLog("Error sending message: " + error.message);
-}
+            window.parent.postMessage({
+              type: 'audioClassification',
+              classification: classificationLabel
+            }, '*');
             
             debugLog("Classification complete: " + classificationLabel);
           } catch (error) {
@@ -315,29 +323,41 @@ try {
       }
     }
 
-    async function initialize() {
-      try {
-        debugLog("Loading model...");
-        
-        // Check for WebML and TensorFlow support
-        if (!window.tf) {
-          throw new Error('TensorFlow.js not loaded');
-        }
-
-        await tf.setBackend('cpu');
-        model = await tf.loadLayersModel(modelURL);
-        debugLog("Model loaded successfully");
-
-        // Enable start button only after model is loaded
-        startBtn.disabled = false;
-        statusEl.textContent = "Recording Status: Ready";
-      } catch (error) {
-        debugLog("Initialization error: " + error.message);
-        startBtn.disabled = true;
-        statusEl.textContent = "Recording Initialization Failed";
-        permissionMsgEl.textContent = `Initialization Error: ${error.message}`;
-      }
+async function initialize() {
+  try {
+    debugLog("Loading model...");
+    
+    // Check for WebML and TensorFlow support
+    if (!window.tf) {
+      throw new Error('TensorFlow.js not loaded');
     }
+
+    await tf.setBackend('cpu');
+    model = await tf.loadLayersModel(modelURL);
+    debugLog("Model loaded successfully");
+
+    // Add test message
+    debugLog("Testing parent communication...");
+    try {
+      window.parent.postMessage({
+        type: 'test',
+        message: 'Hello from iframe'
+      }, '*');
+      debugLog("Test message sent to parent");
+    } catch (error) {
+      debugLog("Error sending test message: " + error.message);
+    }
+
+    // Enable start button only after model is loaded
+    startBtn.disabled = false;
+    statusEl.textContent = "Recording Status: Ready";
+  } catch (error) {
+    debugLog("Initialization error: " + error.message);
+    startBtn.disabled = true;
+    statusEl.textContent = "Recording Initialization Failed";
+    permissionMsgEl.textContent = `Initialization Error: ${error.message}`;
+  }
+}
 
     // Event Listeners
     startBtn.addEventListener('click', async () => {
