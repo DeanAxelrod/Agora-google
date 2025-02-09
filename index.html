@@ -219,18 +219,29 @@ async function classifyAudio(audioBlob) {
     const resultIndex = prediction.indexOf(Math.max(...prediction));
     const classificationLabel = classLabels[resultIndex];
 
-    // Simplified message sending
+    // Simplified message
+    const simpleMessage = {
+      type: 'audioClassification',
+      classification: classificationLabel
+    };
+
     debugLog("Classification result: " + classificationLabel);
     debugLog("Attempting to send message");
+    debugLog("Message content: " + JSON.stringify(simpleMessage));
 
+    // Try different message sending approaches
     try {
-      const simpleMessage = {
-        type: 'audioClassification',
-        classification: classificationLabel
-      };
-      debugLog("Sending simplified message: " + JSON.stringify(simpleMessage));
-      window.parent.postMessage(simpleMessage, '*');
-      debugLog("Message sent successfully");
+      if (window.ReactNativeWebView) {
+        debugLog("Using ReactNativeWebView.postMessage");
+        window.ReactNativeWebView.postMessage(JSON.stringify(simpleMessage));
+      } else if (window.webkit && window.webkit.messageHandlers) {
+        debugLog("Using webkit.messageHandlers");
+        window.webkit.messageHandlers.message.postMessage(simpleMessage);
+      } else {
+        debugLog("Using window.parent.postMessage");
+        window.parent.postMessage(simpleMessage, '*');
+      }
+      debugLog("Message sent via available channel");
     } catch (sendError) {
       debugLog("Error sending message: " + sendError.message);
     }
