@@ -221,10 +221,11 @@ async function classifyAudio(audioBlob) {
 
     // Add error handling for postMessage
     try {
-      window.parent.postMessage({
-        type: 'audioClassification',
-        classification: classificationLabel
-     }, 'https://x.thunkable.com'); 
+         window.parent.postMessage({
+         type: 'audioClassification',
+         classification: classificationLabel,
+         source: 'recorder' // Add this to identify legitimate messages
+}, '*');
       debugLog("Classification sent to parent: " + classificationLabel);
     } catch (error) {
       debugLog("Error sending classification: " + error.message);
@@ -303,7 +304,7 @@ async function classifyAudio(audioBlob) {
             window.parent.postMessage({
               type: 'audioClassification',
               classification: classificationLabel
-            }, 'https://x.thunkable.com'); 
+           }, '*');
             
             debugLog("Classification complete: " + classificationLabel);
           } catch (error) {
