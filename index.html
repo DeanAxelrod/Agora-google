@@ -287,10 +287,15 @@
             resultEl.textContent = "Classification Result: " + classificationLabel;
             
             // Send classification via postMessage with specific data
-            window.parent.postMessage({
-              type: 'audioClassification',
-              classification: classificationLabel
-            }, '*');
+try {
+  window.parent.postMessage({
+    type: 'audioClassification',
+    classification: classificationLabel
+  }, '*');
+  debugLog("Message sent to parent"); // Using your existing debugLog function
+} catch (error) {
+  debugLog("Error sending message: " + error.message);
+}
             
             debugLog("Classification complete: " + classificationLabel);
           } catch (error) {
