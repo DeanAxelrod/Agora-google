@@ -219,16 +219,20 @@ async function classifyAudio(audioBlob) {
     const resultIndex = prediction.indexOf(Math.max(...prediction));
     const classificationLabel = classLabels[resultIndex];
 
-    // Add error handling for postMessage
+    // More detailed logging
+    debugLog("Preparing to send message to parent");
+    const message = {
+      type: 'audioClassification',
+      classification: classificationLabel,
+      source: 'recorder'
+    };
+    debugLog("Message content: " + JSON.stringify(message));
+
     try {
-         window.parent.postMessage({
-         type: 'audioClassification',
-         classification: classificationLabel,
-         source: 'recorder' // Add this to identify legitimate messages
-}, '*');
-      debugLog("Classification sent to parent: " + classificationLabel);
+      window.parent.postMessage(message, '*');
+      debugLog("Message sent successfully");
     } catch (error) {
-      debugLog("Error sending classification: " + error.message);
+      debugLog("Error sending message: " + error.message);
     }
 
     return classificationLabel;
