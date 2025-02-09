@@ -230,6 +230,7 @@ async function classifyAudio(audioBlob) {
     debugLog("Sending message: " + JSON.stringify(message));
     
     window.parent.postMessage(message, '*');
+    console.log('Message sent:', classificationLabel);
     debugLog("Message sent");
 
     return classificationLabel;
