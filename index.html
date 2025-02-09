@@ -219,22 +219,42 @@ async function classifyAudio(audioBlob) {
     const resultIndex = prediction.indexOf(Math.max(...prediction));
     const classificationLabel = classLabels[resultIndex];
 
-    debugLog("About to send message to parent");
-    const message = {
-      data: {  // Add a data wrapper
-        type: 'audioClassification',
-        source: 'recorder',
-        classification: classificationLabel
-      }
-    };
-    console.log('Attempting to send message');
-    console.log('Message:', JSON.stringify(message));
-    debugLog("Sending message: " + JSON.stringify(message));
-    
-    window.parent.postMessage(message, '*');
-   console.log('Message sent');
+    // Add extensive logging
+    debugLog("Classification result: " + classificationLabel);
+    debugLog("Attempting to send message");
+
+    // Try multiple message sending approaches
+    try {
+      // Approach 1: Original nested data structure
+      const message = {
+        data: {
+          type: 'audioClassification',
+          source: 'recorder',
+          classification: classificationLabel
+        }
+      };
+      debugLog("Message object: " + JSON.stringify(message));
+
+      // Attempt 1: Standard postMessage
+      window.parent.postMessage(message, '*');
+      debugLog("Message sent using window.parent.postMessage");
+
+      // Attempt 2: Alternative postMessage
+      window.postMessage(message, '*');
+      debugLog("Message sent using window.postMessage");
+
+      // Attempt 3: Direct string conversion
+      window.parent.postMessage(JSON.stringify(message), '*');
+      debugLog("Message sent as JSON string");
+    } catch (sendError) {
+      debugLog("Error sending message: " + sendError.message);
+    }
+
+    debugLog("Classification complete: " + classificationLabel);
+    return classificationLabel;
   } catch (error) {
-    debugLog("Error: " + error.message);
+    debugLog("Error in classifyAudio: " + error.message);
+    throw error;
   }
 }
 
