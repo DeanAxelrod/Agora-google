@@ -327,29 +327,9 @@ async function classifyAudio(audioBlob) {
 async function initialize() {
   try {
     debugLog("Loading model...");
-    
-    // Check for WebML and TensorFlow support
-    if (!window.tf) {
-      throw new Error('TensorFlow.js not loaded');
-    }
-
     await tf.setBackend('cpu');
     model = await tf.loadLayersModel(modelURL);
     debugLog("Model loaded successfully");
-
-    // Add test message
-    debugLog("Testing parent communication...");
-    try {
-      window.parent.postMessage({
-        type: 'test',
-        message: 'Hello from iframe'
-      }, '*');
-      debugLog("Test message sent to parent");
-    } catch (error) {
-      debugLog("Error sending test message: " + error.message);
-    }
-
-    // Enable start button only after model is loaded
     startBtn.disabled = false;
     statusEl.textContent = "Recording Status: Ready";
   } catch (error) {
