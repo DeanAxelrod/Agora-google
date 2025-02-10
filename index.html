@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Voice Recorder</title>
+  <title>Agora Voice Recorder with Classification</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands"></script>
@@ -11,24 +11,20 @@
       font-family: Arial, sans-serif; 
       margin: 0; 
       padding: 20px; 
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      background-color: #f0f0f0;
+      box-sizing: border-box; 
     }
     .container { 
-      text-align: center;
-      width: 100%;
-      max-width: 400px;
+      max-width: 600px; 
+      margin: 0 auto; 
     }
     .button-container { 
+      margin: 20px 0; 
       display: flex; 
       justify-content: center; 
-      gap: 20px; 
-      margin-top: 20px;
+      gap: 10px; 
     }
     button {
+      margin: 5px; 
       padding: 15px 30px; 
       cursor: pointer;
       background-color: #4CAF50; 
@@ -36,7 +32,7 @@
       border: none;
       border-radius: 4px; 
       font-size: 16px; 
-      min-width: 150px;
+      min-width: 200px;
       transition: all 0.3s ease;
     }
     button:disabled { 
@@ -44,7 +40,23 @@
       cursor: not-allowed; 
     }
     .stop-button { 
-      background-color: #f44336; 
+      background-color: #cccccc; 
+    }
+    .stop-button.recording { 
+      background-color: #f44336 !important; 
+    }
+    #debug { 
+      margin-top: 20px; 
+      padding: 10px; 
+      border: 1px solid #ccc; 
+      max-height: 300px; 
+      overflow-y: auto; 
+      font-size: 12px; 
+    }
+    .status { 
+      font-size: 18px; 
+      margin: 10px 0; 
+      text-align: center; 
     }
     #permissionMessage {
       color: red;
@@ -55,13 +67,15 @@
 </head>
 <body>
   <div class="container">
+    <h1>Agora Voice Recorder with Classification</h1>
     <div id="permissionMessage"></div>
     <div class="button-container">
       <button id="startBtn">Start Recording</button>
       <button id="stopBtn" class="stop-button" disabled>Stop Recording</button>
     </div>
-    <p id="recordingStatus" class="status" style="display:none;">Recording Status: Ready</p>
-    <p id="classificationResult" class="status" style="display:none;">Classification Result: N/A</p>
+    <p id="recordingStatus" class="status">Recording Status: Ready</p>
+    <p id="classificationResult" class="status">Classification Result: N/A</p>
+    <div id="debug"></div>
   </div>
 
   <script>
