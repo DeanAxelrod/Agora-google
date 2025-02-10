@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Agora Voice Recorder with Classification</title>
+  <title>Agora Voice Recorder</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands"></script>
@@ -12,6 +12,7 @@
       margin: 0; 
       padding: 20px; 
       box-sizing: border-box; 
+      text-align: center;
     }
     .container { 
       max-width: 600px; 
@@ -45,37 +46,14 @@
     .stop-button.recording { 
       background-color: #f44336 !important; 
     }
-    #debug { 
-      margin-top: 20px; 
-      padding: 10px; 
-      border: 1px solid #ccc; 
-      max-height: 300px; 
-      overflow-y: auto; 
-      font-size: 12px; 
-    }
-    .status { 
-      font-size: 18px; 
-      margin: 10px 0; 
-      text-align: center; 
-    }
-    #permissionMessage {
-      color: red;
-      text-align: center;
-      margin-bottom: 20px;
-    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Agora Voice Recorder with Classification</h1>
-    <div id="permissionMessage"></div>
     <div class="button-container">
       <button id="startBtn">Start Recording</button>
       <button id="stopBtn" class="stop-button" disabled>Stop Recording</button>
     </div>
-    <p id="recordingStatus" class="status">Recording Status: Ready</p>
-    <p id="classificationResult" class="status">Classification Result: N/A</p>
-    <div id="debug"></div>
   </div>
 
   <script>
@@ -89,24 +67,11 @@
 
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
-    const statusEl = document.getElementById('recordingStatus');
-    const resultEl = document.getElementById('classificationResult');
-    const permissionMsgEl = document.getElementById('permissionMessage');
 
-    function debugLog(message) {
-      const debugDiv = document.getElementById('debug');
-      const logEntry = document.createElement('p');
-      logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-      debugDiv.appendChild(logEntry);
-      debugDiv.scrollTop = debugDiv.scrollHeight;
-      console.log(message); // Also log to console for additional debugging
-    }
-
+    // Updates only the buttons’ enabled/disabled state and styling.
     function setRecordingState(recording) {
       startBtn.disabled = recording;
       stopBtn.disabled = !recording;
-      statusEl.textContent = `Recording Status: ${recording ? 'Recording' : 'Ready'}`;
-
       if (recording) {
         stopBtn.classList.add('recording');
       } else {
@@ -119,23 +84,13 @@
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
           throw new Error('getUserMedia not supported');
         }
-
-        // Try to query permissions if supported
         if (navigator.permissions) {
           const permissionStatus = await navigator.permissions.query({ name: 'microphone' });
-          debugLog(`Microphone Permission Status: ${permissionStatus.state}`);
-
-          permissionStatus.onchange = () => {
-            debugLog(`Microphone permission changed to: ${permissionStatus.state}`);
-          };
-
           if (permissionStatus.state === 'denied') {
-            permissionMsgEl.textContent = 'Microphone access is blocked. Please enable in device settings.';
             throw new Error('Microphone access denied');
           }
         }
-
-        // Attempt to get user media to verify real-time access
+        // Verify real-time access.
         await navigator.mediaDevices.getUserMedia({ 
           audio: {
             echoCancellation: true,
@@ -143,129 +98,78 @@
             autoGainControl: true
           } 
         });
-
-        permissionMsgEl.textContent = ''; // Clear any previous error messages
         return true;
       } catch (error) {
-        debugLog(`Microphone Permission Error: ${error.message}`);
-        permissionMsgEl.textContent = `Microphone Access Error: ${error.message}. Please check browser settings.`;
         startBtn.disabled = true;
-        return false;
+        console.error("Microphone Permission Error:", error.message);
+        throw error;
       }
     }
 
     async function createSpectrogram(audioBuffer) {
-      try {
-        debugLog("Creating spectrogram...");
+      const audioData = audioBuffer.getChannelData(0);
+      const fftSize = 512;
+      const hopSize = fftSize / 2;
+      const numFrames = Math.floor((audioData.length - fftSize) / hopSize);
+      const spectrogramData = [];
 
-        const audioData = audioBuffer.getChannelData(0);
-        const fftSize = 512;
-        const hopSize = fftSize / 2;
-        const numFrames = Math.floor((audioData.length - fftSize) / hopSize);
-
-        const spectrogramData = [];
-
-        for (let i = 0; i < numFrames; i++) {
-          const startIdx = i * hopSize;
-          const frameData = audioData.slice(startIdx, startIdx + fftSize);
-
-          if (frameData.length === fftSize) {
-            const tensorFrame = tf.tensor1d(frameData);
-            const windowedFrame = tensorFrame.mul(tf.signal.hammingWindow(fftSize));
-            const fft = tf.spectral.rfft(windowedFrame);
-            const magnitude = tf.abs(fft);
-
-            spectrogramData.push(magnitude.arraySync());
-            fft.dispose();
-            tensorFrame.dispose();
-          }
+      for (let i = 0; i < numFrames; i++) {
+        const startIdx = i * hopSize;
+        const frameData = audioData.slice(startIdx, startIdx + fftSize);
+        if (frameData.length === fftSize) {
+          const tensorFrame = tf.tensor1d(frameData);
+          const windowedFrame = tensorFrame.mul(tf.signal.hammingWindow(fftSize));
+          const fft = tf.spectral.rfft(windowedFrame);
+          const magnitude = tf.abs(fft);
+          spectrogramData.push(magnitude.arraySync());
+          fft.dispose();
+          tensorFrame.dispose();
         }
-
-        const spectrogramTensor = tf.tensor2d(spectrogramData);
-        debugLog(`Spectrogram created with shape: ${spectrogramTensor.shape}`);
-
-        const targetHeight = 43;
-        const targetWidth = 232;
-
-        const spectrogramWithChannel = spectrogramTensor.reshape([1, spectrogramTensor.shape[0], spectrogramTensor.shape[1], 1]);
-        const resizedSpectrogram = tf.image.resizeBilinear(spectrogramWithChannel, [targetHeight, targetWidth]);
-        spectrogramTensor.dispose();
-
-        const normalizedSpectrogram = resizedSpectrogram.div(tf.max(resizedSpectrogram));
-        return normalizedSpectrogram.reshape([1, targetHeight, targetWidth, 1]);
-      } catch (error) {
-        debugLog("Error creating spectrogram: " + error.message);
-        throw error;
       }
+      const spectrogramTensor = tf.tensor2d(spectrogramData);
+      const targetHeight = 43;
+      const targetWidth = 232;
+      const spectrogramWithChannel = spectrogramTensor.reshape([1, spectrogramTensor.shape[0], spectrogramTensor.shape[1], 1]);
+      const resizedSpectrogram = tf.image.resizeBilinear(spectrogramWithChannel, [targetHeight, targetWidth]);
+      spectrogramTensor.dispose();
+      const normalizedSpectrogram = resizedSpectrogram.div(tf.max(resizedSpectrogram));
+      return normalizedSpectrogram.reshape([1, targetHeight, targetWidth, 1]);
     }
 
     async function classifyAudio(audioBlob) {
+      const audioContext = new AudioContext();
+      const arrayBuffer = await audioBlob.arrayBuffer();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      const spectrogram = await createSpectrogram(audioBuffer);
+      const prediction = await model.predict(spectrogram).data();
+      spectrogram.dispose();
+      const resultIndex = prediction.indexOf(Math.max(...prediction));
+      const classificationLabel = classLabels[resultIndex];
+
+      // Send a simplified message to the parent window.
+      const simpleMessage = {
+        type: 'audioClassification',
+        classification: classificationLabel
+      };
+
       try {
-        debugLog("Starting classification...");
-        const audioContext = new AudioContext();
-        const arrayBuffer = await audioBlob.arrayBuffer();
-
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        debugLog("Audio decoded, duration: " + audioBuffer.duration);
-
-        const spectrogram = await createSpectrogram(audioBuffer);
-        const prediction = await model.predict(spectrogram).data();
-        spectrogram.dispose();
-
-        classLabels.forEach((label, idx) => {
-          debugLog(`${label}: ${(prediction[idx] * 100).toFixed(2)}%`);
-        });
-
-        const resultIndex = prediction.indexOf(Math.max(...prediction));
-        const classificationLabel = classLabels[resultIndex];
-
-        // Simplified message
-        const simpleMessage = {
-          type: 'audioClassification',
-          classification: classificationLabel
-        };
-
-        debugLog("Classification result: " + classificationLabel);
-        debugLog("Attempting to send message");
-        debugLog("Message content: " + JSON.stringify(simpleMessage));
-
-        // Try different message sending approaches
-        try {
-          if (window.ReactNativeWebView) {
-            debugLog("Using ReactNativeWebView.postMessage");
-            window.ReactNativeWebView.postMessage(JSON.stringify(simpleMessage));
-          } else if (window.webkit && window.webkit.messageHandlers) {
-            debugLog("Using webkit.messageHandlers");
-            window.webkit.messageHandlers.message.postMessage(simpleMessage);
-          } else {
-            debugLog("Using window.parent.postMessage");
-            window.parent.postMessage(simpleMessage, '*');
-          }
-          debugLog("Message sent via available channel");
-        } catch (sendError) {
-          debugLog("Error sending message: " + sendError.message);
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify(simpleMessage));
+        } else if (window.webkit && window.webkit.messageHandlers) {
+          window.webkit.messageHandlers.message.postMessage(simpleMessage);
+        } else {
+          window.parent.postMessage(simpleMessage, '*');
         }
-
-        debugLog("Classification complete: " + classificationLabel);
-        return classificationLabel;
-      } catch (error) {
-        debugLog("Error in classifyAudio: " + error.message);
-        throw error;
+      } catch (sendError) {
+        console.error("Error sending message:", sendError.message);
       }
+      return classificationLabel;
     }
 
     async function startRecording() {
       try {
-        // Ensure microphone permission is granted
-        const hasPermission = await checkMicrophonePermission();
-        if (!hasPermission) {
-          debugLog("Microphone permission not granted");
-          return;
-        }
-
-        debugLog("Starting recording...");
+        await checkMicrophonePermission();
         setRecordingState(true);
-
         const stream = await navigator.mediaDevices.getUserMedia({ 
           audio: {
             echoCancellation: true,
@@ -273,107 +177,63 @@
             autoGainControl: true
           } 
         });
-
         mediaRecorder = new MediaRecorder(stream);
         recordedChunks = [];
-
         mediaRecorder.ondataavailable = (event) => {
           if (event.data.size > 0) {
             recordedChunks.push(event.data);
           }
         };
-
-        mediaRecorder.onstart = () => {
-          debugLog("MediaRecorder started");
-        };
-
         mediaRecorder.start();
       } catch (error) {
-        debugLog("Error starting recording: " + error.message);
-        permissionMsgEl.textContent = `Recording Error: ${error.message}`;
-        setRecordingState(false);
+        console.error("Error starting recording:", error.message);
       }
     }
 
     async function stopRecording() {
       try {
-        debugLog("Stopping recording...");
-        statusEl.textContent = "Recording Status: Processing...";
-
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
           await new Promise(resolve => {
             mediaRecorder.onstop = resolve;
             mediaRecorder.stop();
           });
-          debugLog("MediaRecorder stopped");
         }
-
         if (recordedChunks.length > 0) {
           const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-          debugLog("Processing audio...");
-
           try {
-            const classificationLabel = await classifyAudio(audioBlob);
-            resultEl.textContent = "Classification Result: " + classificationLabel;
-            
-            // Message will be sent from classifyAudio function
-            debugLog("Classification complete: " + classificationLabel);
+            await classifyAudio(audioBlob);
           } catch (error) {
-            debugLog("Classification failed: " + error.message);
-            resultEl.textContent = "Classification Result: Error";
+            console.error("Classification failed:", error.message);
             window.parent.postMessage({
               type: 'error',
               message: error.message
             }, '*');
           }
         }
-
         setRecordingState(false);
       } catch (error) {
-        debugLog("Error stopping recording: " + error.message);
+        console.error("Error stopping recording:", error.message);
         setRecordingState(false);
       }
     }
 
     async function initialize() {
       try {
-        debugLog("Loading model...");
         await tf.setBackend('cpu');
         model = await tf.loadLayersModel(modelURL);
-        debugLog("Model loaded successfully");
-        
-        // Add test message
-        setTimeout(() => {
-          debugLog("Sending test message");
-          try {
-            window.parent.postMessage({
-              type: 'test',
-              message: 'hello'
-            }, '*');
-            debugLog("Test message sent");
-          } catch (error) {
-            debugLog("Error sending test message: " + error.message);
-          }
-        }, 2000);  // Send test message after 2 seconds
-
         startBtn.disabled = false;
-        statusEl.textContent = "Recording Status: Ready";
       } catch (error) {
-        debugLog("Initialization error: " + error.message);
+        console.error("Initialization error:", error.message);
         startBtn.disabled = true;
-        statusEl.textContent = "Recording Initialization Failed";
-        permissionMsgEl.textContent = `Initialization Error: ${error.message}`;
       }
     }
 
-    // Event Listeners
     startBtn.addEventListener('click', async () => {
       try {
-        // Ensure this is directly triggered by user interaction
         await checkMicrophonePermission();
         await startRecording();
       } catch (error) {
-        debugLog("Recording start error: " + error.message);
+        console.error("Recording start error:", error.message);
       }
     });
 
@@ -385,7 +245,6 @@
       }
     });
 
-    // Initialize on page load
     initialize();
   </script>
 </body>
