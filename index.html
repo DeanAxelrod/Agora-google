@@ -18,33 +18,38 @@
       max-width: 600px; 
       margin: 0 auto; 
     }
+    /* Stack the buttons vertically */
     .button-container { 
       margin: 20px 0; 
       display: flex; 
-      justify-content: center; 
-      gap: 10px; 
+      flex-direction: column;
+      gap: 10px;
+      align-items: center;
     }
+    /* Make the buttons smaller */
     button {
       margin: 5px; 
-      padding: 8px 16px; 
+      padding: 8px 16px;        /* Reduced padding for a smaller button */
       cursor: pointer;
-      background-color: #4CAF50; 
-      color: white; 
+      background-color: #4CAF50;  /* Green background for the start button */
+      color: white;               /* White text */
       border: none;
       border-radius: 4px; 
-      font-size: 14px; 
-      min-width: 250px;
+      font-size: 14px;            /* Smaller font size */
+      min-width: 150px;           /* Reduced minimum width */
       transition: all 0.3s ease;
     }
     button:disabled { 
-      background-color: Transparent; 
+      background-color: #cccccc; 
       cursor: not-allowed; 
     }
+    /* Stop button defaults */
     .stop-button { 
-      background-color: Transparent; 
+      background-color: #cccccc;  /* Grey background by default */
     }
+    /* When recording, the stop button turns red */
     .stop-button.recording { 
-      background-color: #f44336 !important; 
+      background-color: #f44336 !important;  
     }
   </style>
 </head>
@@ -68,7 +73,7 @@
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
 
-    // Updates only the buttons’ enabled/disabled state and styling.
+    // Update the buttons' state and styling.
     function setRecordingState(recording) {
       startBtn.disabled = recording;
       stopBtn.disabled = !recording;
@@ -90,7 +95,6 @@
             throw new Error('Microphone access denied');
           }
         }
-        // Verify real-time access.
         await navigator.mediaDevices.getUserMedia({ 
           audio: {
             echoCancellation: true,
@@ -112,7 +116,6 @@
       const hopSize = fftSize / 2;
       const numFrames = Math.floor((audioData.length - fftSize) / hopSize);
       const spectrogramData = [];
-
       for (let i = 0; i < numFrames; i++) {
         const startIdx = i * hopSize;
         const frameData = audioData.slice(startIdx, startIdx + fftSize);
@@ -145,13 +148,10 @@
       spectrogram.dispose();
       const resultIndex = prediction.indexOf(Math.max(...prediction));
       const classificationLabel = classLabels[resultIndex];
-
-      // Send a simplified message to the parent window.
       const simpleMessage = {
         type: 'audioClassification',
         classification: classificationLabel
       };
-
       try {
         if (window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(JSON.stringify(simpleMessage));
