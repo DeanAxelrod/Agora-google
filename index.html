@@ -55,12 +55,6 @@
       background-color: #f44336 !important;  
     }
   </style>
-<script>
-window.onerror = function(msg, url, line) {
-    console.error('Error: ' + msg);
-    return true; // Prevents default error page
-};
-</script>
 </head>
 <body>
   <div class="container">
@@ -148,107 +142,84 @@ window.onerror = function(msg, url, line) {
       return normalizedSpectrogram.reshape([1, targetHeight, targetWidth, 1]);
     }
 
-async function classifyAudio(audioBlob) {
-  try {
-    const audioContext = new AudioContext();
-    const arrayBuffer = await audioBlob.arrayBuffer();
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-    const spectrogram = await createSpectrogram(audioBuffer);
-    const prediction = await model.predict(spectrogram).data();
-    spectrogram.dispose();
-    const resultIndex = prediction.indexOf(Math.max(...prediction));
-    const classificationLabel = classLabels[resultIndex];
-    const simpleMessage = {
-      type: 'audioClassification',
-      classification: classificationLabel,
-      timestamp: Date.now()  // Add this to make each message unique
-    };
-
-    // Modify the message sending
-    window.parent.postMessage(simpleMessage, '*');
-    
-    // Close the audio context
-    if (audioContext.state !== 'closed') {
-      await audioContext.close();
-    }
-
-    return classificationLabel;
-  } catch (error) {
-    console.error("Classification error:", error);
-    window.parent.postMessage({
-      type: 'error',
-      message: 'Classification failed, please try again'
-    }, '*');
-    throw error;
-  }
-}
-
-async function startRecording() {
-  try {
-    // Add this line at the start of startRecording
-    if (!model || model.isDisposed) {
-      await initialize();
-    }
-
-    await checkMicrophonePermission();
-    setRecordingState(true);
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      } 
-    });
-    mediaRecorder = new MediaRecorder(stream);
-    recordedChunks = [];
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        recordedChunks.push(event.data);
-      }
-    };
-    mediaRecorder.start();
-  } catch (error) {
-    console.error("Error starting recording:", error.message);
-  }
-}
-
-async function stopRecording() {
-  try {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      await new Promise(resolve => {
-        mediaRecorder.onstop = resolve;
-        mediaRecorder.stop();
-      });
-      
-      // Add proper cleanup
-      mediaRecorder.stream.getTracks().forEach(track => track.stop());
-      
-      if (recordedChunks.length > 0) {
-        const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-        try {
-          await classifyAudio(audioBlob);
-          // Add model cleanup
-          if (model) {
-            await tf.disposeVariables();
-          }
-        } catch (error) {
-          console.error("Classification failed:", error.message);
-          window.parent.postMessage({
-            type: 'error',
-            message: error.message
-          }, '*');
+    async function classifyAudio(audioBlob) {
+      const audioContext = new AudioContext();
+      const arrayBuffer = await audioBlob.arrayBuffer();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      const spectrogram = await createSpectrogram(audioBuffer);
+      const prediction = await model.predict(spectrogram).data();
+      spectrogram.dispose();
+      const resultIndex = prediction.indexOf(Math.max(...prediction));
+      const classificationLabel = classLabels[resultIndex];
+      const simpleMessage = {
+        type: 'audioClassification',
+        classification: classificationLabel
+      };
+      try {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify(simpleMessage));
+        } else if (window.webkit && window.webkit.messageHandlers) {
+          window.webkit.messageHandlers.message.postMessage(simpleMessage);
+        } else {
+          window.parent.postMessage(simpleMessage, '*');
         }
+      } catch (sendError) {
+        console.error("Error sending message:", sendError.message);
       }
-      
-      mediaRecorder = null;
-      recordedChunks = [];
-      setRecordingState(false);
+      return classificationLabel;
     }
-  } catch (error) {
-    console.error("Error stopping recording:", error.message);
-    setRecordingState(false);
-  }
-}
+
+    async function startRecording() {
+      try {
+        await checkMicrophonePermission();
+        setRecordingState(true);
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          } 
+        });
+        mediaRecorder = new MediaRecorder(stream);
+        recordedChunks = [];
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            recordedChunks.push(event.data);
+          }
+        };
+        mediaRecorder.start();
+      } catch (error) {
+        console.error("Error starting recording:", error.message);
+      }
+    }
+
+    async function stopRecording() {
+      try {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          await new Promise(resolve => {
+            mediaRecorder.onstop = resolve;
+            mediaRecorder.stop();
+          });
+        }
+        if (recordedChunks.length > 0) {
+          const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+          try {
+            await classifyAudio(audioBlob);
+          } catch (error) {
+            console.error("Classification failed:", error.message);
+            window.parent.postMessage({
+              type: 'error',
+              message: error.message
+            }, '*');
+          }
+        }
+        setRecordingState(false);
+      } catch (error) {
+        console.error("Error stopping recording:", error.message);
+        setRecordingState(false);
+      }
+    }
+
     async function initialize() {
       try {
         await tf.setBackend('cpu');
