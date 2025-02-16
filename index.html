@@ -175,29 +175,34 @@ window.onerror = function(msg, url, line) {
       return classificationLabel;
     }
 
-    async function startRecording() {
-      try {
-        await checkMicrophonePermission();
-        setRecordingState(true);
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          } 
-        });
-        mediaRecorder = new MediaRecorder(stream);
-        recordedChunks = [];
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            recordedChunks.push(event.data);
-          }
-        };
-        mediaRecorder.start();
-      } catch (error) {
-        console.error("Error starting recording:", error.message);
-      }
+async function startRecording() {
+  try {
+    // Add this line at the start of startRecording
+    if (!model || model.isDisposed) {
+      await initialize();
     }
+
+    await checkMicrophonePermission();
+    setRecordingState(true);
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      } 
+    });
+    mediaRecorder = new MediaRecorder(stream);
+    recordedChunks = [];
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        recordedChunks.push(event.data);
+      }
+    };
+    mediaRecorder.start();
+  } catch (error) {
+    console.error("Error starting recording:", error.message);
+  }
+}
 
 async function stopRecording() {
   try {
@@ -207,13 +212,17 @@ async function stopRecording() {
         mediaRecorder.stop();
       });
       
-      // Clean up the old stream
+      // Add proper cleanup
       mediaRecorder.stream.getTracks().forEach(track => track.stop());
       
       if (recordedChunks.length > 0) {
         const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
         try {
           await classifyAudio(audioBlob);
+          // Add model cleanup
+          if (model) {
+            await tf.disposeVariables();
+          }
         } catch (error) {
           console.error("Classification failed:", error.message);
           window.parent.postMessage({
@@ -223,10 +232,8 @@ async function stopRecording() {
         }
       }
       
-      // Reset recorder and chunks
       mediaRecorder = null;
       recordedChunks = [];
-      
       setRecordingState(false);
     }
   } catch (error) {
@@ -234,7 +241,6 @@ async function stopRecording() {
     setRecordingState(false);
   }
 }
-
     async function initialize() {
       try {
         await tf.setBackend('cpu');
