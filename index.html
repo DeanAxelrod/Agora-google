@@ -55,6 +55,12 @@
       background-color: #f44336 !important;  
     }
   </style>
+<script>
+window.onerror = function(msg, url, line) {
+    console.error('Error: ' + msg);
+    return true; // Prevents default error page
+};
+</script>
 </head>
 <body>
   <div class="container">
@@ -193,32 +199,41 @@
       }
     }
 
-    async function stopRecording() {
-      try {
-        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-          await new Promise(resolve => {
-            mediaRecorder.onstop = resolve;
-            mediaRecorder.stop();
-          });
+async function stopRecording() {
+  try {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      await new Promise(resolve => {
+        mediaRecorder.onstop = resolve;
+        mediaRecorder.stop();
+      });
+      
+      // Clean up the old stream
+      mediaRecorder.stream.getTracks().forEach(track => track.stop());
+      
+      if (recordedChunks.length > 0) {
+        const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+        try {
+          await classifyAudio(audioBlob);
+        } catch (error) {
+          console.error("Classification failed:", error.message);
+          window.parent.postMessage({
+            type: 'error',
+            message: error.message
+          }, '*');
         }
-        if (recordedChunks.length > 0) {
-          const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-          try {
-            await classifyAudio(audioBlob);
-          } catch (error) {
-            console.error("Classification failed:", error.message);
-            window.parent.postMessage({
-              type: 'error',
-              message: error.message
-            }, '*');
-          }
-        }
-        setRecordingState(false);
-      } catch (error) {
-        console.error("Error stopping recording:", error.message);
-        setRecordingState(false);
       }
+      
+      // Reset recorder and chunks
+      mediaRecorder = null;
+      recordedChunks = [];
+      
+      setRecordingState(false);
     }
+  } catch (error) {
+    console.error("Error stopping recording:", error.message);
+    setRecordingState(false);
+  }
+}
 
     async function initialize() {
       try {
